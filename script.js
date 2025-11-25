@@ -1258,7 +1258,7 @@ dom.authBtn.addEventListener('click', async () => {
             await cred.user.updateProfile({ displayName: name, photoURL: avatar });
             await db.collection('users').doc(cred.user.uid).set({
                 uid: cred.user.uid, displayName: name, customId: uid, email, photoURL: avatar,
-                bio: 'Hey there! I am using Prasoon\'s Den.', location: 'Unknown',
+                bio: 'Hey there! I am using Synapse', location: 'Unknown',
                 isOnline: true, lastSeen: FieldValue.serverTimestamp()
             });
         }
