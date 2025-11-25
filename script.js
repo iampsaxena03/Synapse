@@ -24,6 +24,12 @@ const state = {
     currentChatUser: null,
     currentClubData: null,
     currentChatParams: { hiddenBefore: null },
+    
+    // NEW STATES FOR FEATURES
+    inputMode: 'normal', // 'normal', 'reply', 'edit'
+    targetMsg: null,     // The message being Replied to or Edited
+    forwardContent: null, // Content waiting to be forwarded
+    
     activeTab: 'chats',
     isLoginMode: true,
     usersCache: new Map(),
@@ -66,7 +72,16 @@ const dom = {
     authBtn: document.getElementById('auth-btn'),
     toggleBtn: document.getElementById('toggle-mode'),
     error: document.getElementById('auth-error'),
-    feed: document.getElementById('messages-feed')
+    feed: document.getElementById('messages-feed'),
+    // NEW DOM ELEMENTS
+    contextBar: document.getElementById('input-context-bar'),
+    contextTitle: document.querySelector('.context-title'),
+    contextText: document.querySelector('.context-text'),
+    closeContextBtn: document.getElementById('close-context-btn'),
+    forwardModal: document.getElementById('forward-modal'),
+    forwardList: document.getElementById('forward-list'),
+    // Context Menu Container
+    contextMenuOverlay: document.querySelector('.context-menu-overlay')
 };
 
 // --- UTILS ---
@@ -82,6 +97,10 @@ const getSafeDate = (timestamp) => {
     if (typeof timestamp === 'number') return new Date(timestamp);
     if (typeof timestamp === 'string') return new Date(timestamp);
     return new Date();
+};
+
+const triggerHaptic = () => {
+    if (navigator.vibrate) navigator.vibrate(50);
 };
 
 // --- READ STATUS HELPERS ---
@@ -577,7 +596,8 @@ function attachClubReadListener(div, clubId, clubLastActivity) {
 async function openChat(partner) {
     state.currentClubData = null;
     state.currentChatUser = partner;
-    state.currentChatParams.hiddenBefore = null; 
+    state.currentChatParams.hiddenBefore = null;
+    cancelInputMode(); // Reset reply/edit when switching chats
     
     prepareChatUI();
     dom.listChats.classList.remove('hidden');
@@ -612,6 +632,7 @@ async function openClub(club, id) {
     state.currentChatUser = null;
     state.currentClubData = { ...club, id };
     state.currentChatParams.hiddenBefore = null;
+    cancelInputMode();
     
     prepareChatUI();
     dom.listClubs.classList.remove('hidden');
@@ -659,11 +680,12 @@ function closeChatUI() {
     state.currentChatUser = null;
     state.currentClubData = null;
     localStorage.removeItem('lastChatId');
+    cancelInputMode();
     
     document.querySelectorAll('.user-item, .club-item').forEach(el => el.classList.remove('active'));
 }
 
-// --- CORE: LOAD MESSAGES & DATE LOGIC (OPTIMIZED RECEIVER SPEED) ---
+// --- CORE: LOAD MESSAGES ---
 async function loadMessages(id, isClub) {
     if (state.listeners.messages) state.listeners.messages();
     dom.feed.innerHTML = '';
@@ -694,13 +716,9 @@ async function loadMessages(id, isClub) {
         if (!snap.empty) {
             if (!state.scroll.oldestSnapshot) state.scroll.oldestSnapshot = snap.docs[0];
             
-            // CRITICAL OPTIMIZATION: Reduced latency for Read Status
-            // Changed from 500ms to 50ms. 
-            // 50ms is enough to let the DOM paint, but fast enough to feel instant.
             if (document.visibilityState === 'visible') {
                 setTimeout(() => {
                     if (!isClub) {
-                        // Check local cache first to avoid unnecessary DB calls if already read
                         const hasUnread = snap.docs.some(doc => doc.data().senderId === id && !doc.data().read);
                         if (hasUnread) { 
                             markMessagesAsRead(id); 
@@ -714,7 +732,6 @@ async function loadMessages(id, isClub) {
         }
 
         let lastRenderedDate = null;
-        // BUG FIX: Using getElementsByClassName because :last-of-type selector fails when the last element is a message bubble (which is a DIV)
         const separators = dom.feed.getElementsByClassName('date-separator');
         if (separators.length > 0) {
             const lastBadge = separators[separators.length - 1].querySelector('.date-badge');
@@ -752,24 +769,16 @@ async function loadMessages(id, isClub) {
                         existing.remove();
                         return;
                     }
-
-                    if (data.isDeleted && !existing.classList.contains('deleted')) {
-                        const newBubble = createMessageBubble(data, change.doc.id, isClub);
-                        existing.replaceWith(newBubble);
-                    } else if (!isClub && data.read) {
-                        const tick = existing.querySelector('.tick-icon');
-                        if (tick) { tick.classList.remove('tick-grey'); tick.classList.add('tick-blue'); }
-                    } else if (data.content !== existing.querySelector('.msg-bubble span').textContent) {
-                         const newBubble = createMessageBubble(data, change.doc.id, isClub);
-                         existing.replaceWith(newBubble);
-                    }
+                    // Always replace bubble on modify to handle Edits and Deletes correctly
+                    const newBubble = createMessageBubble(data, change.doc.id, isClub);
+                    existing.replaceWith(newBubble);
                 }
             }
         });
     });
 }
 
-// --- CORE: INFINITE SCROLL (UPDATED) ---
+// --- CORE: INFINITE SCROLL ---
 dom.feed.addEventListener('scroll', () => {
     if (dom.feed.scrollTop === 0 && !state.scroll.isFetching && !state.scroll.allLoaded && (state.currentChatUser || state.currentClubData)) {
         loadMoreMessages();
@@ -852,6 +861,198 @@ function createDateSeparator(dateStr) {
     return div;
 }
 
+// --- CONTEXT MENU MANAGER ---
+const ContextMenu = {
+    hide() {
+        dom.contextMenuOverlay.classList.add('hidden');
+        dom.contextMenuOverlay.innerHTML = '';
+        dom.contextMenuOverlay.classList.remove('mobile-active');
+    },
+    
+    show(e, msgData, isClub, isSent) {
+        // Close inline menu first if open
+        document.querySelectorAll('.msg-row.show-actions').forEach(el => el.classList.remove('show-actions'));
+        
+        const overlay = dom.contextMenuOverlay;
+        overlay.innerHTML = '';
+        overlay.classList.remove('hidden');
+
+        // Build Menu Items
+        let itemsHtml = `
+            <div class="context-item" onclick="window.startReply('${escapeHtml(JSON.stringify(msgData)).replace(/"/g, '&quot;')}', ${isClub}); ContextMenu.hide()">
+                <i class="fa-solid fa-reply"></i> Reply
+            </div>
+            <div class="context-item" onclick="window.copyText('${escapeHtml(msgData.content).replace(/"/g, '&quot;')}'); ContextMenu.hide()">
+                <i class="fa-regular fa-copy"></i> Copy Text
+            </div>
+            <div class="context-item" onclick="window.startForward('${escapeHtml(msgData.content).replace(/"/g, '&quot;')}'); ContextMenu.hide()">
+                <i class="fa-solid fa-share"></i> Forward
+            </div>
+        `;
+
+        if (isSent && msgData.type === 'text') {
+            itemsHtml += `
+            <div class="context-item" onclick="window.startEdit('${escapeHtml(JSON.stringify(msgData)).replace(/"/g, '&quot;')}', ${isClub}); ContextMenu.hide()">
+                <i class="fa-solid fa-pen"></i> Edit
+            </div>
+            `;
+        }
+
+        itemsHtml += `
+            <div class="context-item danger" onclick="window.promptDelete('${msgData.id}', ${isClub}, ${isSent}); ContextMenu.hide()">
+                <i class="fa-solid fa-trash"></i> Delete
+            </div>
+        `;
+
+        const menu = document.createElement('div');
+        menu.className = 'context-menu';
+        menu.innerHTML = itemsHtml;
+        overlay.appendChild(menu);
+
+        // Positioning Logic
+        if (window.innerWidth <= 768) {
+            // Mobile: Bottom Sheet
+            overlay.classList.add('mobile-active');
+        } else {
+            // Desktop: At Cursor (with bounds check)
+            let x = e.clientX;
+            let y = e.clientY;
+            
+            // Render first to get dims
+            // But styling handles logic mostly. We'll adjust roughly.
+            if (x + 200 > window.innerWidth) x -= 200;
+            if (y + 250 > window.innerHeight) y -= 250;
+            
+            menu.style.left = `${x}px`;
+            menu.style.top = `${y}px`;
+        }
+    }
+};
+
+dom.contextMenuOverlay.addEventListener('click', (e) => {
+    if (e.target === dom.contextMenuOverlay) ContextMenu.hide();
+});
+
+window.copyText = (text) => {
+    navigator.clipboard.writeText(text).then(() => {
+       // Optional Toast
+    });
+};
+
+
+// --- GESTURE MANAGER ---
+function attachGestures(element, msgData, isClub, isSent) {
+    let touchStartX = 0;
+    let touchStartY = 0;
+    let longPressTimer;
+    let clickCount = 0;
+    let clickTimer;
+    let isSwiping = false;
+    const bubble = element.querySelector('.msg-bubble');
+
+    // 1. Long Press (Hold) -> Context Menu
+    const startLongPress = (e) => {
+        longPressTimer = setTimeout(() => {
+            if (!isSwiping) {
+                triggerHaptic();
+                // Get coordinates from touch
+                const touch = e.touches ? e.touches[0] : e;
+                ContextMenu.show({ clientX: touch.clientX, clientY: touch.clientY }, msgData, isClub, isSent);
+            }
+        }, 500); 
+    };
+
+    const cancelLongPress = () => clearTimeout(longPressTimer);
+
+    // 2. Swipe Logic (Real-time Visual)
+    element.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+        isSwiping = false;
+        
+        // Remove transition during drag for instant response
+        bubble.classList.remove('swipe-animate');
+        
+        startLongPress(e);
+    }, {passive: true});
+
+    element.addEventListener('touchmove', (e) => {
+        const currentX = e.touches[0].clientX;
+        const currentY = e.touches[0].clientY;
+        const deltaX = currentX - touchStartX;
+        const deltaY = currentY - touchStartY;
+        
+        // Cancel long press if moved
+        if (Math.abs(deltaX) > 10 || Math.abs(deltaY) > 10) {
+            cancelLongPress();
+        }
+
+        // Swipe Logic (Horizontal Dominance)
+        if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 10) {
+            isSwiping = true;
+            
+            // Limit Drag Distance (Resistance)
+            // Left Swipe (negative delta)
+            // Right Swipe (positive delta)
+            const dragLimit = 80;
+            let renderX = 0;
+
+            // Only allow dragging in valid direction
+            if (isSent && deltaX < 0) {
+                // Sent message: drag left
+                 renderX = Math.max(deltaX, -dragLimit);
+            } else if (!isSent && deltaX > 0) {
+                // Received message: drag right
+                renderX = Math.min(deltaX, dragLimit);
+            }
+
+            if (renderX !== 0) {
+                bubble.style.transform = `translateX(${renderX}px)`;
+            }
+        }
+    }, {passive: true});
+
+    element.addEventListener('touchend', (e) => {
+        cancelLongPress();
+        
+        // Restore transition for smooth snap back
+        bubble.classList.add('swipe-animate');
+        bubble.style.transform = 'translateX(0)';
+
+        const deltaX = e.changedTouches[0].clientX - touchStartX;
+        
+        // Threshold check
+        if (Math.abs(deltaX) > 60 && isSwiping) {
+            if ((isSent && deltaX < -50) || (!isSent && deltaX > 50)) {
+                triggerHaptic();
+                window.startReply(JSON.stringify(msgData), isClub);
+            }
+        }
+        
+        // Reset swiping flag after short delay to prevent click trigger
+        setTimeout(() => { isSwiping = false; }, 100);
+    });
+
+    // 3. Desktop Right Click
+    element.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        ContextMenu.show(e, msgData, isClub, isSent);
+    });
+
+    // 4. Click Handler (Inline Menu vs Context Safety)
+    element.addEventListener('click', (e) => {
+        if (isSwiping) return;
+        
+        // Don't toggle inline menu if context menu is open
+        if (!dom.contextMenuOverlay.classList.contains('hidden')) return;
+
+        // Toggle Inline
+        window.toggleActions(bubble);
+    });
+}
+
+
+// --- MESSAGE RENDER LOGIC (UPDATED) ---
 function createMessageBubble(msg, id, isClub) {
     const isSent = msg.senderId === state.currentUser.uid;
     const div = document.createElement('div');
@@ -872,6 +1073,12 @@ function createMessageBubble(msg, id, isClub) {
     div.className = `msg-row ${isSent ? 'sent' : 'received'}`;
     const time = safeDate.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
     let meta = `<span class="msg-time">${time}</span>`;
+    
+    // Edit Label
+    if (msg.isEdited) {
+        meta = `<span class="edited-label">(edited)</span> ` + meta;
+    }
+
     if (!isClub && isSent) {
         meta += `<span class="tick-container"><i class="fa-solid fa-check-double tick-icon ${msg.read ? 'tick-blue' : 'tick-grey'}"></i></span>`;
     }
@@ -883,9 +1090,38 @@ function createMessageBubble(msg, id, isClub) {
             `<div class="sender-name">${escapeHtml(msg.displayName || 'User')}</div>`;
     }
 
+    // REPLY QUOTE BLOCK
+    let replyBlock = '';
+    if (msg.replyTo) {
+        replyBlock = `
+        <div class="reply-quote" onclick="event.stopPropagation(); window.scrollToMsg('${msg.replyTo.id}')">
+            <span class="reply-sender">${escapeHtml(msg.replyTo.displayName)}</span>
+            <span class="reply-text">${escapeHtml(msg.replyTo.content)}</span>
+        </div>`;
+    }
+
+    // FORWARDED LABEL
+    let forwardLabel = '';
+    if (msg.isForwarded) {
+        forwardLabel = `<div class="forward-label"><i class="fa-solid fa-share"></i> Forwarded</div>`;
+    }
+
+    // Store minimal data for actions
+    const msgData = {id: id, content: msg.content, displayName: msg.displayName || 'User', senderId: msg.senderId, type: msg.type};
+    const msgDataJSON = JSON.stringify(msgData);
+
+    // INLINE SIDE MENU (Original)
+    const canEdit = isSent && msg.type === 'text';
     const actionMenu = `
         <div class="msg-action-menu">
-            <button class="action-btn" onclick="event.stopPropagation(); window.promptDelete('${id}', ${isClub}, ${isSent})" title="Delete Options">
+            <button class="action-btn" onclick="event.stopPropagation(); window.startReply('${escapeHtml(msgDataJSON).replace(/"/g, '&quot;')}', ${isClub})" title="Reply">
+                <i class="fa-solid fa-reply"></i>
+            </button>
+            <button class="action-btn" onclick="event.stopPropagation(); window.startForward('${escapeHtml(msg.content).replace(/"/g, '&quot;')}')" title="Forward">
+                <i class="fa-solid fa-share"></i>
+            </button>
+            ${canEdit ? `<button class="action-btn" onclick="event.stopPropagation(); window.startEdit('${escapeHtml(msgDataJSON).replace(/"/g, '&quot;')}', ${isClub})" title="Edit"><i class="fa-solid fa-pen"></i></button>` : ''}
+            <button class="action-btn delete-btn" onclick="event.stopPropagation(); window.promptDelete('${id}', ${isClub}, ${isSent})" title="Delete">
                 <i class="fa-solid fa-trash"></i>
             </button>
         </div>
@@ -893,18 +1129,208 @@ function createMessageBubble(msg, id, isClub) {
 
     div.innerHTML = `
         ${actionMenu}
-        <div class="msg-bubble" onclick="window.toggleActions(this)" oncontextmenu="window.handleContextMenu(event, this)">
+        <div class="msg-bubble">
+            ${forwardLabel}
+            ${replyBlock}
             ${sender}
             <span>${escapeHtml(msg.content)}</span>
             <div class="msg-meta">${meta}</div>
         </div>
     `;
+
+    // ATTACH GESTURES (Swipe + Context Menu + Tap)
+    attachGestures(div, msgData, isClub, isSent);
+
     return div;
 }
 
+// --- NEW FEATURES: HANDLERS ---
+
+window.scrollToMsg = (id) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        el.querySelector('.msg-bubble').style.background = 'var(--glass-highlight)';
+        setTimeout(() => el.querySelector('.msg-bubble').style.background = '', 1000);
+    } else {
+        // Simple toast
+        alert("Message is too old or not loaded.");
+    }
+};
+
+window.startReply = (msgDataStr, isClub) => {
+    const msg = typeof msgDataStr === 'string' ? JSON.parse(msgDataStr) : msgDataStr;
+    state.inputMode = 'reply';
+    state.targetMsg = msg;
+    
+    dom.contextBar.classList.remove('hidden');
+    dom.contextTitle.textContent = `Replying to ${msg.displayName}`;
+    dom.contextText.textContent = msg.content;
+    dom.contextBar.querySelector('i').className = 'fa-solid fa-reply';
+    
+    document.getElementById('msg-input').focus();
+    // Hide actions menu
+    document.querySelectorAll('.msg-row.show-actions').forEach(el => el.classList.remove('show-actions'));
+};
+
+window.startEdit = (msgDataStr, isClub) => {
+    const msg = typeof msgDataStr === 'string' ? JSON.parse(msgDataStr) : msgDataStr;
+    state.inputMode = 'edit';
+    state.targetMsg = msg;
+
+    dom.contextBar.classList.remove('hidden');
+    dom.contextTitle.textContent = "Editing Message";
+    dom.contextText.textContent = msg.content;
+    dom.contextBar.querySelector('i').className = 'fa-solid fa-pen';
+
+    const input = document.getElementById('msg-input');
+    input.value = msg.content;
+    input.focus();
+    
+    // Change send icon
+    document.querySelector('.send-btn i').className = 'fa-solid fa-check';
+    document.getElementById('send-btn').classList.remove('hidden');
+
+    document.querySelectorAll('.msg-row.show-actions').forEach(el => el.classList.remove('show-actions'));
+};
+
+window.cancelInputMode = () => {
+    state.inputMode = 'normal';
+    state.targetMsg = null;
+    dom.contextBar.classList.add('hidden');
+    
+    const input = document.getElementById('msg-input');
+    input.value = '';
+    
+    document.querySelector('.send-btn i').className = 'fa-solid fa-paper-plane';
+    document.getElementById('send-btn').classList.add('hidden');
+};
+
+dom.closeContextBtn.addEventListener('click', window.cancelInputMode);
+
+// --- FORWARD LOGIC ---
+
+window.startForward = (content) => {
+    state.forwardContent = content;
+    dom.forwardModal.classList.remove('hidden');
+    loadForwardList('chats');
+    document.querySelectorAll('.msg-row.show-actions').forEach(el => el.classList.remove('show-actions'));
+};
+
+document.getElementById('close-forward-modal').addEventListener('click', () => {
+    dom.forwardModal.classList.add('hidden');
+    state.forwardContent = null;
+});
+
+// Forward Tabs
+document.getElementById('fwd-tab-chats').onclick = () => loadForwardList('chats');
+document.getElementById('fwd-tab-clubs').onclick = () => loadForwardList('clubs');
+
+function loadForwardList(type) {
+    // Style Tabs
+    if (type === 'chats') {
+        document.getElementById('fwd-tab-chats').classList.add('active');
+        document.getElementById('fwd-tab-clubs').classList.remove('active');
+    } else {
+        document.getElementById('fwd-tab-chats').classList.remove('active');
+        document.getElementById('fwd-tab-clubs').classList.add('active');
+    }
+
+    const container = dom.forwardList;
+    container.innerHTML = '';
+
+    if (type === 'chats') {
+        // Reuse cached users from sidebar or recent chats logic
+        if (state.usersCache.size === 0) {
+            container.innerHTML = '<div style="padding:15px;text-align:center;opacity:0.5">No recent chats loaded.</div>';
+            return;
+        }
+        state.usersCache.forEach(user => {
+            if (user.uid === state.currentUser.uid) return;
+            const div = document.createElement('div');
+            div.className = 'user-item';
+            div.innerHTML = `
+                <img src="${user.photoURL}" onerror="this.src='https://via.placeholder.com/50'">
+                <div class="user-info"><h4>${escapeHtml(user.displayName)}</h4></div>
+                <button class="forward-btn-action" onclick="window.confirmForward('${user.uid}', false)">Send</button>
+            `;
+            container.appendChild(div);
+        });
+    } else {
+        // Load clubs again or use simple query (since we don't cache clubs in a Map, we fetch)
+        db.collection('clubs').limit(10).get().then(snap => {
+            snap.forEach(doc => {
+                const club = doc.data();
+                const div = document.createElement('div');
+                div.className = 'club-item';
+                div.innerHTML = `
+                     <i class="${club.icon || 'fa-solid fa-users'} club-icon"></i>
+                     <div class="user-info"><h4>${escapeHtml(club.name)}</h4></div>
+                     <button class="forward-btn-action" onclick="window.confirmForward('${doc.id}', true)">Send</button>
+                `;
+                container.appendChild(div);
+            });
+        });
+    }
+}
+
+window.confirmForward = async (targetId, isClub) => {
+    if (!state.forwardContent) return;
+    
+    // Optimistic UI Feedback
+    const btn = event.target;
+    const oldText = btn.textContent;
+    btn.textContent = 'Sent!';
+    btn.disabled = true;
+
+    try {
+        let ref;
+        const ts = FieldValue.serverTimestamp();
+        
+        if (isClub) {
+             ref = db.collection('clubs').doc(targetId).collection('messages').doc();
+             await ref.set({
+                content: state.forwardContent,
+                senderId: state.currentUser.uid,
+                displayName: state.currentUser.displayName,
+                type: 'text',
+                isForwarded: true,
+                timestamp: ts
+             });
+             await db.collection('clubs').doc(targetId).update({ lastMessageAt: ts });
+        } else {
+            const chatId = [state.currentUser.uid, targetId].sort().join('_');
+            ref = db.collection('chats').doc(chatId).collection('messages').doc();
+            await ref.set({
+                content: state.forwardContent,
+                senderId: state.currentUser.uid,
+                type: 'text',
+                read: false,
+                isForwarded: true,
+                timestamp: ts
+            });
+            // Update metadata for both
+            const batch = db.batch();
+            batch.set(db.collection('users').doc(state.currentUser.uid).collection('activeChats').doc(targetId), { timestamp: ts }, { merge: true });
+            batch.set(db.collection('users').doc(targetId).collection('activeChats').doc(state.currentUser.uid), { timestamp: ts, unreadCount: FieldValue.increment(1) }, { merge: true });
+            await batch.commit();
+        }
+        
+        setTimeout(() => {
+            dom.forwardModal.classList.add('hidden');
+            btn.textContent = oldText;
+            btn.disabled = false;
+        }, 800);
+
+    } catch(e) {
+        console.error(e);
+        btn.textContent = 'Error';
+    }
+};
+
 // --- GLOBAL ACTIONS ---
 window.toggleActions = (bubble) => {
-    const row = bubble.parentElement;
+    const row = bubble.closest('.msg-row');
     if (row.classList.contains('show-actions')) {
         row.classList.remove('show-actions');
     } else {
@@ -937,64 +1363,35 @@ window.promptDelete = (msgId, isClub, isSender) => {
 window.confirmDeleteForMe = async () => {
     const { id, isClub } = state.pendingDelete;
     document.getElementById('delete-options-modal').classList.add('hidden');
-
     if (!id || !state.currentUser) return;
-
     try {
         let ref;
-        
         if (isClub) {
-             if (!state.currentClubData || !state.currentClubData.id) throw new Error("Club context missing");
              ref = db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(id);
         } else {
-             if (!state.currentChatUser || !state.currentChatUser.uid) throw new Error("Chat user context missing");
              const chatId = [state.currentUser.uid, state.currentChatUser.uid].sort().join('_');
              ref = db.collection('chats').doc(chatId).collection('messages').doc(id);
         }
-
-        await ref.update({
-            deletedFor: FieldValue.arrayUnion(state.currentUser.uid)
-        });
-        
+        await ref.update({ deletedFor: FieldValue.arrayUnion(state.currentUser.uid) });
         const row = document.getElementById(`msg-${id}`);
         if(row) row.remove();
-
-    } catch(e) { 
-        console.error("Delete Error:", e);
-        if (e.code === 'not-found') {
-             alert("Message not found or already deleted.");
-        } else {
-             alert("Delete Failed: " + e.message); 
-        }
-    }
+    } catch(e) { alert("Error deleting."); }
 };
 
 window.confirmDeleteForEveryone = async () => {
     const { id, isClub } = state.pendingDelete;
     document.getElementById('delete-options-modal').classList.add('hidden');
-
     if (!id || !state.currentUser) return;
-
     try {
         let ref;
         if (isClub) {
-             if (!state.currentClubData || !state.currentClubData.id) throw new Error("Club context missing");
              ref = db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(id);
         } else {
-             if (!state.currentChatUser || !state.currentChatUser.uid) throw new Error("Chat user context missing");
              const chatId = [state.currentUser.uid, state.currentChatUser.uid].sort().join('_');
              ref = db.collection('chats').doc(chatId).collection('messages').doc(id);
         }
-
-        await ref.update({
-            isDeleted: true,
-            content: '', 
-            type: 'deleted'
-        });
-    } catch(e) { 
-        console.error("Unsend Error:", e);
-        alert("Unsend Failed: " + e.message + ". Only sender can unsend."); 
-    }
+        await ref.update({ isDeleted: true, content: '', type: 'deleted' });
+    } catch(e) { alert("Error unsending."); }
 };
 
 window.clearChat = async () => {
@@ -1008,25 +1405,48 @@ window.clearChat = async () => {
     } catch(e) { console.error("Clear chat error", e); }
 };
 
-// --- OPTIMISTIC SENDING (INSTANT UI) ---
+// --- OPTIMISTIC SENDING (UPDATED FOR REPLY / EDIT) ---
 const sendMsg = async () => {
     const input = document.getElementById('msg-input');
     const txt = input.value.trim();
-    if (!txt || (!state.currentChatUser && !state.currentClubData)) return;
+    if (!txt) return;
 
-    // 1. Clear Input Immediately
+    // Capture state before clearing
+    const mode = state.inputMode;
+    const target = state.targetMsg;
+    const isClub = !!state.currentClubData;
+    
+    // 1. EDIT MODE
+    if (mode === 'edit') {
+        if (!target) return;
+        try {
+            let ref = isClub ? 
+                db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(target.id) : 
+                db.collection('chats').doc([state.currentUser.uid, state.currentChatUser.uid].sort().join('_')).collection('messages').doc(target.id);
+            
+            await ref.update({
+                content: txt,
+                isEdited: true,
+                editedAt: FieldValue.serverTimestamp()
+            });
+            cancelInputMode();
+        } catch(e) { console.error(e); }
+        return;
+    }
+
+    // 2. NORMAL / REPLY MODE
     input.value = '';
-    input.focus(); // FIX: Keep focus to prevent keyboard retraction
+    input.focus();
     document.getElementById('send-btn').classList.add('hidden');
     stopTyping();
+    cancelInputMode(); // Hides the reply bar if open
 
     const safeTxt = txt.replace(/</g, "&lt;").replace(/>/g, "&gt;");
     const ts = FieldValue.serverTimestamp();
 
-    // 2. Prepare References
+    // Prepare References
     let ref;
     let msgId;
-    let isClub = !!state.currentClubData;
 
     if (isClub) {
         ref = db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc();
@@ -1035,64 +1455,63 @@ const sendMsg = async () => {
         ref = db.collection('chats').doc(chatId).collection('messages').doc();
     }
     
-    // 3. Get Generated ID
     msgId = ref.id;
 
-    // 4. Create Optimistic Local Data
+    // Create Optimistic Local Data
     const localData = {
         content: safeTxt,
         senderId: state.currentUser.uid,
         displayName: state.currentUser.displayName || 'Me',
         type: 'text',
-        timestamp: new Date(), // Local time for instant display
+        timestamp: new Date(),
         read: false,
-        isDeleted: false
+        isDeleted: false,
+        // ADD NEW FIELDS
+        replyTo: mode === 'reply' ? {
+            id: target.id,
+            displayName: target.displayName,
+            content: target.content,
+            senderId: target.senderId
+        } : null
     };
 
-    // 5. Render Immediately
-    // Only render if we don't have it (we shouldn't)
+    // Render Immediately
     if (!document.getElementById(`msg-${msgId}`)) {
-        // FIX: Check if we need to add a "Today" separator locally first
-        const separators = dom.feed.getElementsByClassName('date-separator');
-        let lastDate = null;
-        if (separators.length > 0) {
-            const badge = separators[separators.length - 1].querySelector('.date-badge');
-            if (badge) lastDate = badge.textContent;
-        }
-
-        const currentDate = getFriendlyDate(new Date());
-        if (currentDate !== lastDate) {
-            dom.feed.appendChild(createDateSeparator(currentDate));
-        }
-
         const bubble = createMessageBubble(localData, msgId, isClub);
         dom.feed.appendChild(bubble);
         dom.feed.scrollTop = dom.feed.scrollHeight;
     }
 
-    // 6. Send to Background
+    // Send to Background
     try {
+        const payload = {
+            content: safeTxt, 
+            senderId: state.currentUser.uid, 
+            type: 'text', 
+            timestamp: ts
+        };
+        
         if (isClub) {
-            // Use SET with specific ID so it matches the DOM element we just created
-            await ref.set({
-                content: safeTxt, 
-                senderId: state.currentUser.uid, 
-                displayName: state.currentUser.displayName,
-                type: 'text', 
-                timestamp: ts
-            });
+            payload.displayName = state.currentUser.displayName;
+        } else {
+            payload.read = false;
+        }
+
+        if (mode === 'reply') {
+            payload.replyTo = {
+                id: target.id,
+                displayName: target.displayName,
+                content: target.content,
+                senderId: target.senderId
+            };
+        }
+
+        await ref.set(payload);
+
+        if (isClub) {
             await db.collection('clubs').doc(state.currentClubData.id).update({ lastMessageAt: ts });
             updateClubReadStatus(state.currentClubData.id);
         } else {
-            // Use SET for direct chat as well
-            await ref.set({
-                content: safeTxt, 
-                senderId: state.currentUser.uid, 
-                type: 'text', 
-                read: false, 
-                timestamp: ts
-            });
-            
             const batch = db.batch();
             const myRef = db.collection('users').doc(state.currentUser.uid).collection('activeChats').doc(state.currentChatUser.uid);
             batch.set(myRef, { timestamp: ts }, { merge: true });
@@ -1104,7 +1523,6 @@ const sendMsg = async () => {
         }
     } catch (e) { 
         console.error("Send error", e); 
-        // Optional: Add visual error state to bubble (e.g., red color)
         const bubble = document.getElementById(`msg-${msgId}`);
         if (bubble) bubble.style.opacity = '0.5'; 
     }
@@ -1113,14 +1531,8 @@ const sendMsg = async () => {
 const sendBtn = document.getElementById('send-btn');
 sendBtn.addEventListener('click', sendMsg);
 
-// FIX: Prevent focus loss when tapping send button on mobile
-// This prevents the "blur" event on the input, keeping keyboard open
 sendBtn.addEventListener('mousedown', (e) => e.preventDefault());
 sendBtn.addEventListener('touchstart', (e) => {
-    // On some devices, touchstart is enough to blur. 
-    // We prevent default to stop blur, but we must manually trigger send if click is suppressed.
-    // However, usually preventDefault on mousedown is sufficient and safer for click firing.
-    // But for robustness on all mobile browsers:
     e.preventDefault(); 
     sendMsg();
 });

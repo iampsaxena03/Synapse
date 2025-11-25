@@ -170,12 +170,33 @@ body {
 .messages-feed::-webkit-scrollbar { width: 6px; }
 .messages-feed::-webkit-scrollbar-thumb { background: var(--glass-border); border-radius: 3px; }
 
-/* CRITICAL FIX: position: relative added */
+/* Message Rows */
 .msg-row { display: flex; max-width: 65%; position: relative; margin: 2px 0; z-index: 1; animation: slideUp 0.2s cubic-bezier(0.25, 1, 0.5, 1); }
 .msg-row.sent { align-self: flex-end; justify-content: flex-end; }
 .msg-row.received { align-self: flex-start; }
 
-.msg-bubble { padding: 12px 18px; border-radius: 18px; font-size: 15px; line-height: 1.5; position: relative; box-shadow: 0 2px 10px rgba(0,0,0,0.1); display: flex; flex-direction: column; cursor: pointer; }
+.msg-bubble { 
+    padding: 12px 18px; 
+    border-radius: 18px; 
+    font-size: 15px; 
+    line-height: 1.5; 
+    position: relative; 
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1); 
+    display: flex; 
+    flex-direction: column; 
+    cursor: pointer; 
+    min-width: 100px; 
+    /* SWIPE ANIMATION PROPERTIES */
+    touch-action: pan-y; /* Allow vertical scroll, handle horizontal in JS */
+    will-change: transform;
+    z-index: 2;
+}
+
+/* Animation class added via JS after swipe release */
+.msg-bubble.swipe-animate {
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
 .sent .msg-bubble { background: var(--msg-sent); color: white; border-bottom-right-radius: 4px; }
 .received .msg-bubble { background: var(--msg-received); color: var(--text-primary); border-bottom-left-radius: 4px; }
 
@@ -187,9 +208,42 @@ body {
 .tick-grey { color: var(--tick-grey); opacity: 0.8; }
 .tick-blue { color: var(--tick-blue); filter: drop-shadow(0 0 5px rgba(0, 230, 255, 0.5)); }
 
-.input-area { padding: 20px; border-top: 1px solid var(--glass-border); background: rgba(20, 20, 35, 0.8); display: flex; align-items: center; gap: 10px; }
+/* INPUT AREA REDESIGNED FOR CONTEXT BAR */
+.input-area { 
+    border-top: 1px solid var(--glass-border); 
+    background: rgba(20, 20, 35, 0.8); 
+    display: flex; 
+    flex-direction: column; /* Changed for context bar */
+}
+
+.input-wrapper {
+    display: flex; 
+    align-items: center; 
+    gap: 10px;
+    padding: 20px;
+}
+
+/* CONTEXT BAR (Reply/Edit) */
+.context-bar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 20px;
+    background: rgba(108, 92, 231, 0.1);
+    border-bottom: 1px solid var(--glass-border);
+    animation: slideUp 0.2s ease;
+}
+.context-content { display: flex; align-items: center; gap: 15px; overflow: hidden; }
+.context-icon { color: var(--accent-color); font-size: 18px; }
+.context-info { display: flex; flex-direction: column; min-width: 0; }
+.context-title { font-size: 12px; font-weight: 700; color: var(--accent-color); }
+.context-text { font-size: 13px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon-btn-small { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 14px; padding: 5px; }
+.icon-btn-small:hover { color: white; }
+
+/* INPUT FIELD */
 #msg-input { flex: 1; background: rgba(0,0,0,0.3); border: 1px solid var(--glass-border); padding: 14px 20px; border-radius: 25px; color: white; outline: none; }
-.send-btn { width: 45px; height: 45px; border-radius: 50%; background: var(--accent-color); color: white; border: none; cursor: pointer; box-shadow: 0 0 15px var(--accent-glow); transition: 0.2s; }
+.send-btn { width: 45px; height: 45px; border-radius: 50%; background: var(--accent-color); color: white; border: none; cursor: pointer; box-shadow: 0 0 15px var(--accent-glow); transition: 0.2s; display: flex; align-items: center; justify-content: center; }
 .send-btn:hover { transform: scale(1.1); }
 
 /* NEW: TYPING INDICATOR ACTIVE */
@@ -236,8 +290,6 @@ body {
 .slide-up { animation: slideUp 0.5s ease; }
 .fade-in { animation: fadeIn 0.4s ease; }
 
-/* --- PHASE 1 & 3 ADDITIONS --- */
-
 /* Date Separator */
 .date-separator {
     display: flex;
@@ -264,14 +316,12 @@ body {
     cursor: default;
 }
 .msg-row.deleted .tick-container { display: none; }
-.msg-row.deleted .msg-action-menu { display: none; } /* Hide actions for deleted messages */
+.msg-row.deleted .msg-action-menu { display: none; }
 
-/* Message Actions Menu (TAP TO SHOW) */
-.msg-bubble { position: relative; transition: background 0.2s; }
-
-/* Highlight bubble when active actions */
+/* INLINE SIDE MENU (Visible on single tap) */
 .msg-row.show-actions .msg-bubble {
     filter: brightness(1.2);
+    transform: scale(0.98); 
 }
 
 .msg-action-menu {
@@ -279,41 +329,57 @@ body {
     top: 50%;
     transform: translateY(-50%);
     opacity: 0;
-    pointer-events: none; /* Prevent clicks when hidden */
-    transition: 0.2s;
+    pointer-events: none;
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     display: flex;
-    gap: 5px;
-    z-index: 50; /* Z-INDEX FIX: Ensures button is above other bubbles */
+    gap: 8px;
+    z-index: 50; 
 }
-.msg-row.sent .msg-action-menu { left: -35px; }
-.msg-row.received .msg-action-menu { right: -35px; }
 
-/* Show menu when 'show-actions' class is toggled on row */
+.msg-row.sent .msg-action-menu { 
+    right: 100%; 
+    left: auto;
+    margin-right: 15px; 
+    flex-direction: row;
+}
+
+.msg-row.received .msg-action-menu { 
+    left: 100%;
+    right: auto;
+    margin-left: 15px; 
+    flex-direction: row-reverse; 
+}
+
 .msg-row.show-actions .msg-action-menu {
     opacity: 1;
     pointer-events: auto;
 }
+.msg-row.sent.show-actions .msg-action-menu { transform: translateY(-50%) translateX(0); }
+.msg-row.received.show-actions .msg-action-menu { transform: translateY(-50%) translateX(0); }
 
 .action-btn {
     background: rgba(255,255,255,0.1);
     border: none;
     color: var(--text-secondary);
-    width: 28px; 
-    height: 28px;
+    width: 32px; 
+    height: 32px;
     border-radius: 50%;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 12px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    font-size: 14px;
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    backdrop-filter: blur(4px);
+    transition: 0.2s;
 }
-.action-btn:hover { background: var(--danger); color: white; }
+.action-btn:hover { background: var(--accent-color); color: white; transform: scale(1.1); }
+.action-btn.delete-btn:hover { background: var(--danger); }
 
 /* Header Actions */
 .header-actions { display: flex; gap: 10px; }
 
-/* --- NEW: DELETE CHOICE MODAL --- */
+/* DELETE CHOICE MODAL */
 .choice-modal-body { text-align: center; display: flex; flex-direction: column; gap: 12px; }
 .btn-choice {
     padding: 14px;
@@ -332,3 +398,130 @@ body {
 .btn-choice:hover { background: rgba(255, 255, 255, 0.1); }
 .btn-delete-all { color: var(--danger); border-color: rgba(255, 118, 117, 0.3); }
 .btn-delete-all:hover { background: rgba(255, 118, 117, 0.1); }
+
+/* NEW FEATURES: Reply Quote Block */
+.reply-quote {
+    display: block;
+    margin-bottom: 8px;
+    padding: 8px 10px;
+    background: rgba(0, 0, 0, 0.2);
+    border-left: 3px solid var(--accent-color);
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: 0.2s;
+}
+.reply-quote:hover { background: rgba(0,0,0,0.3); }
+.reply-sender { font-weight: 700; color: var(--secondary-accent); display: block; margin-bottom: 2px; }
+.reply-text { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Edited Label */
+.edited-label { font-size: 10px; color: var(--text-secondary); font-style: italic; margin-left: 4px; }
+
+/* Forward Label */
+.forward-label {
+    font-size: 10px; color: var(--text-secondary); font-style: italic; margin-bottom: 4px; display: flex; align-items: center; gap: 4px;
+}
+
+/* Forward Modal Specifics */
+.forward-card { height: 70vh; display: flex; flex-direction: column; }
+.forward-list-container { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.forward-btn-action {
+    margin-left: auto;
+    background: var(--accent-color);
+    color: white;
+    border: none;
+    padding: 5px 15px;
+    border-radius: 15px;
+    font-size: 12px;
+    cursor: pointer;
+}
+
+/* =========================================
+   CONTEXT MENU POPUP (POPUP FUNCTION)
+   ========================================= */
+.context-menu-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100vw; height: 100vh;
+    z-index: 9999;
+    background: transparent; /* Invisible catch-all to close menu */
+}
+
+.context-menu {
+    position: absolute;
+    background: rgba(20, 20, 35, 0.95);
+    backdrop-filter: blur(15px);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+    padding: 5px;
+    min-width: 180px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+    animation: menuFadeIn 0.2s ease-out;
+    transform-origin: top left;
+}
+
+@keyframes menuFadeIn {
+    from { opacity: 0; transform: scale(0.9); }
+    to { opacity: 1; transform: scale(1); }
+}
+
+.context-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    color: var(--text-primary);
+    cursor: pointer;
+    border-radius: 8px;
+    font-size: 14px;
+    transition: 0.15s;
+}
+
+.context-item:hover {
+    background: var(--glass-highlight);
+    color: var(--accent-color);
+}
+
+.context-item i {
+    width: 20px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+.context-item:hover i {
+    color: var(--accent-color);
+}
+.context-item.danger:hover {
+    background: rgba(255, 118, 117, 0.1);
+    color: var(--danger);
+}
+.context-item.danger:hover i { color: var(--danger); }
+
+/* Mobile Bottom Sheet Style for Context Menu */
+@media (max-width: 768px) {
+    .context-menu-overlay.mobile-active {
+        background: rgba(0,0,0,0.5); /* Dim background */
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+    }
+    .context-menu-overlay.mobile-active .context-menu {
+        position: static;
+        width: 100%;
+        max-width: 100%;
+        border-bottom-left-radius: 0;
+        border-bottom-right-radius: 0;
+        border-top-left-radius: 20px;
+        border-top-right-radius: 20px;
+        animation: slideUpMenu 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        padding: 10px 0 20px 0;
+    }
+    .context-item {
+        padding: 15px 25px;
+        font-size: 16px;
+    }
+    @keyframes slideUpMenu {
+        from { transform: translateY(100%); }
+        to { transform: translateY(0); }
+    }
+}

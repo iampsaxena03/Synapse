@@ -165,15 +165,36 @@
                     <div id="messages-feed" class="messages-feed"></div>
 
                     <footer class="input-area">
-                        <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off">
-                        <button id="send-btn" class="send-btn hidden"><i class="fa-solid fa-paper-plane"></i></button>
+                        <!-- REPLY / EDIT PREVIEW BAR -->
+                        <div id="input-context-bar" class="context-bar hidden">
+                            <div class="context-content">
+                                <div class="context-icon"><i class="fa-solid fa-reply"></i></div>
+                                <div class="context-info">
+                                    <span class="context-title">Replying to...</span>
+                                    <span class="context-text">Message preview</span>
+                                </div>
+                            </div>
+                            <button id="close-context-btn" class="icon-btn-small"><i class="fa-solid fa-xmark"></i></button>
+                        </div>
+
+                        <div class="input-wrapper">
+                            <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off">
+                            <button id="send-btn" class="send-btn hidden"><i class="fa-solid fa-paper-plane"></i></button>
+                        </div>
                     </footer>
                 </div>
             </main>
         </div>
     </div>
 
-    <!-- MODALS (Profile Edit/View) -->
+    <!-- CONTEXT MENU OVERLAY (POPUP FUNCTION) -->
+    <div class="context-menu-overlay hidden">
+        <!-- Injected via JS -->
+    </div>
+
+    <!-- MODALS -->
+
+    <!-- PROFILE EDIT -->
     <div id="edit-profile-modal" class="modal-overlay hidden">
         <div class="modal-card glass-card slide-up">
             <button class="close-modal" id="close-edit-profile"><i class="fa-solid fa-xmark"></i></button>
@@ -203,6 +224,7 @@
         </div>
     </div>
 
+    <!-- VIEW PROFILE -->
     <div id="view-profile-modal" class="modal-overlay hidden">
         <div class="modal-card glass-card slide-up">
             <button class="close-modal" id="close-view-profile"><i class="fa-solid fa-xmark"></i></button>
@@ -227,6 +249,28 @@
             </div>
         </div>
     </div>
+
+    <!-- FORWARD MODAL -->
+    <div id="forward-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-card slide-up forward-card">
+            <button class="close-modal" id="close-forward-modal"><i class="fa-solid fa-xmark"></i></button>
+            <div class="modal-header">
+                <h2>Forward to...</h2>
+            </div>
+            
+            <div class="nav-tabs" style="margin-bottom: 15px;">
+                <button class="nav-tab active" id="fwd-tab-chats">Chats</button>
+                <button class="nav-tab" id="fwd-tab-clubs">Clubs</button>
+            </div>
+
+            <div id="forward-list" class="forward-list-container">
+                <!-- Injected via JS -->
+            </div>
+        </div>
+    </div>
+    
+    <!-- DELETE MODAL -->
+    <!-- Injected via JS -->
 
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
