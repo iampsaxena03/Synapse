@@ -1016,6 +1016,7 @@ const sendMsg = async () => {
 
     // 1. Clear Input Immediately
     input.value = '';
+    input.focus(); // FIX: Keep focus to prevent keyboard retraction
     document.getElementById('send-btn').classList.add('hidden');
     stopTyping();
 
@@ -1109,7 +1110,21 @@ const sendMsg = async () => {
     }
 };
 
-document.getElementById('send-btn').addEventListener('click', sendMsg);
+const sendBtn = document.getElementById('send-btn');
+sendBtn.addEventListener('click', sendMsg);
+
+// FIX: Prevent focus loss when tapping send button on mobile
+// This prevents the "blur" event on the input, keeping keyboard open
+sendBtn.addEventListener('mousedown', (e) => e.preventDefault());
+sendBtn.addEventListener('touchstart', (e) => {
+    // On some devices, touchstart is enough to blur. 
+    // We prevent default to stop blur, but we must manually trigger send if click is suppressed.
+    // However, usually preventDefault on mousedown is sufficient and safer for click firing.
+    // But for robustness on all mobile browsers:
+    e.preventDefault(); 
+    sendMsg();
+});
+
 document.getElementById('msg-input').addEventListener('keydown', e => { if(e.key === 'Enter') sendMsg(); });
 
 document.getElementById('msg-input').addEventListener('input', e => {
