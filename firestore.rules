@@ -1,58 +1,124 @@
 rules_version = '2';
-
 service cloud.firestore {
-match /databases/{database}/documents {
+  match /databases/{database}/documents {
 
-// --- USER RULES ---
-match /users/{userId} {
-  allow read, write: if request.auth != null && request.auth.uid == userId;
-  // Allow searching users (reading other profiles)
-  allow read: if request.auth != null; 
-  
-  match /activeChats/{chatId} {
-    allow read, write: if request.auth != null && request.auth.uid == userId;
+    // --- HELPER FUNCTIONS ---
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isDirectChatParticipant(chatId) {
+      return chatId.split('_').hasAny([request.auth.uid]);
+    }
+
+    // --- LOGIC: MARK AS READ ---
+    function isMarkAsRead() {
+      return request.resource.data.content == resource.data.content &&
+             request.resource.data.senderId == resource.data.senderId &&
+             request.resource.data.type == resource.data.type &&
+             request.resource.data.read == true;
+    }
+
+    // --- LOGIC: DELETE FOR ME ---
+    function isDeleteForMe() {
+      let existingDeleted = resource.data.get('deletedFor', []);
+      let newDeleted = request.resource.data.get('deletedFor', []);
+      
+      // Ensure content remains unchanged
+      let contentUnchanged = request.resource.data.content == resource.data.content;
+      
+      return contentUnchanged &&
+             newDeleted.size() == existingDeleted.size() + 1 &&
+             newDeleted.hasAll(existingDeleted) &&
+             newDeleted[newDeleted.size() - 1] == request.auth.uid;
+    }
+
+    // --- LOGIC: DELETE FOR EVERYONE ---
+    function isDeleteForEveryone() {
+      return resource.data.senderId == request.auth.uid &&
+             request.resource.data.isDeleted == true &&
+             (request.resource.data.content == '' || request.resource.data.content == null) &&
+             request.resource.data.type == 'deleted';
+    }
+
+    // --- LOGIC: EDIT MESSAGE ---
+    function isEditMessage() {
+      return resource.data.senderId == request.auth.uid &&
+             request.resource.data.isEdited == true &&
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['content', 'isEdited', 'editedAt']);
+    }
+
+    // --- 1. SETTINGS (REQUIRED FOR ADMIN LOGIN) ---
+    match /settings/admin_access {
+      allow read: if true; 
+      allow write: if false; 
+    }
+
+    // --- 2. USERS (UPDATED FOR ADMIN DELETE) ---
+    match /users/{userId} {
+      allow read: if true;
+      
+      // ALLOW WRITE IF:
+      // 1. User is editing themselves
+      // 2. OR The Admin (logged in Anonymously) is performing an action (like DELETE/BAN)
+      allow write: if (isAuthenticated() && request.auth.uid == userId) || 
+                      (request.auth.token.firebase.sign_in_provider == 'anonymous');
+
+      match /activeChats/{partnerId} {
+        allow read: if isAuthenticated() && request.auth.uid == userId;
+        allow write: if isAuthenticated() && (
+          request.auth.uid == userId || 
+          request.auth.uid == partnerId
+        );
+      }
+      
+      match /clubStates/{clubId} {
+        allow read, write: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
+
+    // --- 3. DIRECT CHATS ---
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() && isDirectChatParticipant(chatId);
+
+      match /messages/{msgId} {
+        allow read: if isAuthenticated() && isDirectChatParticipant(chatId);
+        
+        allow create: if isAuthenticated() && 
+                         isDirectChatParticipant(chatId) && 
+                         request.resource.data.senderId == request.auth.uid;
+        
+        allow update: if isAuthenticated() && isDirectChatParticipant(chatId) && (
+          isMarkAsRead() || isDeleteForMe() || isDeleteForEveryone() || isEditMessage()
+        );
+      }
+
+      match /typing/{userId} {
+        allow read: if isAuthenticated() && isDirectChatParticipant(chatId);
+        allow write: if isAuthenticated() && isDirectChatParticipant(chatId) && request.auth.uid == userId;
+      }
+    }
+
+    // --- 4. CLUBS ---
+    match /clubs/{clubId} {
+      allow read: if isAuthenticated();
+      allow update: if isAuthenticated(); 
+      
+      match /messages/{msgId} {
+        allow read: if isAuthenticated();
+        
+        allow create: if isAuthenticated() && 
+                         request.resource.data.senderId == request.auth.uid;
+        
+        allow update: if isAuthenticated() && (
+          isDeleteForMe() || isDeleteForEveryone() || isEditMessage()
+        );
+      }
+
+      match /typing/{userId} {
+        allow read: if isAuthenticated();
+        allow write: if isAuthenticated() && request.auth.uid == userId;
+      }
+    }
   }
-  match /clubStates/{clubId} {
-    allow read, write: if request.auth != null && request.auth.uid == userId;
-  }
-}
-
-// --- CHAT MESSAGES RULES ---
-match /chats/{chatId}/messages/{msgId} {
-  allow read: if request.auth != null;
-  
-  // CREATE: Allow if senderId matches user's UID
-  allow create: if request.auth != null && request.resource.data.senderId == request.auth.uid;
-  
-  // UPDATE: Specialized Rule for Soft Delete / Edit
-  allow update: if request.auth.uid == resource.data.senderId
-                && isPermittedUpdate();
-                
-  function isPermittedUpdate() {
-    // Only allow changing 'isDeleted' and 'content' (for clearing text)
-    // Prevents tampering with timestamp or senderId
-    return (request.resource.data.keys().hasOnly(['isDeleted', 'content', 'read', 'type', 'senderId', 'timestamp', 'displayName']) &&
-            request.resource.data.diff(resource.data).affectedKeys().hasAny(['isDeleted', 'content', 'read']));
-  }
-}
-
-// --- TYPING INDICATORS ---
-match /chats/{chatId}/typing/{userId} {
-  allow read, write: if request.auth != null;
-}
-
-// --- CLUBS RULES (Simplified for now) ---
-match /clubs/{clubId} {
-  allow read: if request.auth != null;
-  match /messages/{msgId} {
-    allow read, create: if request.auth != null;
-    allow update: if request.auth.uid == resource.data.senderId;
-  }
-  match /typing/{userId} {
-    allow read, write: if request.auth != null;
-  }
-}
-
-
-}
 }

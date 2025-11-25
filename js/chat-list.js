@@ -177,14 +177,28 @@ export function loadClubs() {
     const content = dom.clubsContent;
     if (content.children.length === 0) content.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5">Loading clubs...</div>';
 
-    state.listeners.clubs = db.collection('clubs').orderBy('lastMessageAt', 'desc').onSnapshot(snap => {
+    // FIX APPLIED HERE: Removed .orderBy() to allow "broken" clubs to load
+    state.listeners.clubs = db.collection('clubs').onSnapshot(snap => {
         if (content.innerHTML.includes('Loading clubs')) content.innerHTML = '';
         if (snap.empty) {
             content.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5">No clubs found</div>';
             return;
         }
 
-        snap.forEach(doc => {
+        // --- SORT IN MEMORY ---
+        // This ensures clubs without 'lastMessageAt' still appear (sorted by createdAt or unsorted)
+        const sortedDocs = snap.docs.sort((a, b) => {
+             const dataA = a.data();
+             const dataB = b.data();
+             
+             // Prioritize lastMessageAt, fall back to createdAt, default to 0
+             const timeA = dataA.lastMessageAt ? dataA.lastMessageAt.toMillis() : (dataA.createdAt ? dataA.createdAt.toMillis() : 0);
+             const timeB = dataB.lastMessageAt ? dataB.lastMessageAt.toMillis() : (dataB.createdAt ? dataB.createdAt.toMillis() : 0);
+             
+             return timeB - timeA; // Descending
+        });
+
+        sortedDocs.forEach(doc => {
             const club = doc.data();
             const id = doc.id;
             let el = document.getElementById(`club-${id}`);
