@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
+    <title>Prasoon's Den</title>
+    
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#130f40">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/1041/1041916.png">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="background-mesh"></div>
+
+    <!-- LOADING SCREEN -->
+    <div id="loading-screen" class="screen">
+        <div class="loader-content">
+            <div class="logo-icon pulse-anim"><i class="fa-solid fa-layer-group"></i></div>
+            <h3>Entering the Den...</h3>
+        </div>
+    </div>
+
+    <!-- AUTH SCREEN -->
+    <div id="auth-screen" class="screen hidden">
+        <div class="glass-card auth-card slide-up">
+            <div class="glow-effect"></div>
+            <div class="logo-area">
+                <div class="logo-icon"><i class="fa-solid fa-layer-group"></i></div>
+                <h1>Prasoon's Den</h1>
+                <p>The Premium Experience</p>
+            </div>
+            <div class="auth-form">
+                <div class="input-group">
+                    <i class="fa-regular fa-user"></i>
+                    <input type="text" id="login-input" placeholder="Username or Email" autocomplete="username">
+                </div>
+                <div class="input-group">
+                    <i class="fa-solid fa-lock"></i>
+                    <input type="password" id="password" placeholder="Password" autocomplete="current-password">
+                </div>
+                <div id="signup-extra" class="hidden">
+                    <div class="input-group">
+                        <i class="fa-regular fa-id-badge"></i>
+                        <input type="text" id="full-name" placeholder="Display Name" autocomplete="name">
+                    </div>
+                    <div class="input-group">
+                        <i class="fa-solid fa-at"></i>
+                        <input type="text" id="custom-id" placeholder="Choose a User ID" autocomplete="off">
+                    </div>
+                    <div class="input-group">
+                        <i class="fa-regular fa-envelope"></i>
+                        <input type="email" id="signup-email" placeholder="Email Address" autocomplete="email">
+                    </div>
+                </div>
+                <p id="auth-error" class="error-msg"></p>
+                <button id="auth-btn" class="btn-primary">Login</button>
+                <div class="divider"><span>OR</span></div>
+                <button id="toggle-mode" class="btn-text">Create New Account</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN APP SCREEN -->
+    <div id="app-screen" class="screen hidden">
+        <div class="app-layout fade-in">
+            
+            <!-- SIDEBAR -->
+            <aside class="sidebar glass-panel">
+                <div class="sidebar-header-group">
+                    <!-- Profile Header -->
+                    <div class="sidebar-header">
+                        <div class="my-profile" id="my-profile-trigger">
+                            <div class="avatar-wrapper">
+                                <img id="my-avatar" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Me">
+                                <div class="online-indicator"></div>
+                            </div>
+                            <div class="my-info">
+                                <h3 id="my-name">Loading...</h3>
+                                <small id="my-custom-id">@...</small>
+                            </div>
+                        </div>
+                        <button id="logout-btn" class="icon-btn logout" title="Logout">
+                            <i class="fa-solid fa-power-off"></i>
+                        </button>
+                    </div>
+
+                    <!-- Nav Tabs -->
+                    <div class="nav-tabs">
+                        <button class="nav-tab active" id="tab-chats">Direct</button>
+                        <button class="nav-tab" id="tab-clubs">Clubs</button>
+                    </div>
+                </div>
+                
+                <!-- Search (Shared) -->
+                <div class="search-bar">
+                    <i class="fa-solid fa-magnifying-glass"></i>
+                    <input type="text" id="user-search" placeholder="Search...">
+                </div>
+
+                <div class="list-container">
+                    <!-- Search Results -->
+                    <div id="search-results" class="users-list hidden">
+                        <div class="list-title">Search Results</div>
+                        <div id="search-list-content"></div>
+                    </div>
+
+                    <!-- Private Chats List -->
+                    <div id="my-chats-list" class="users-list">
+                        <div class="list-title">Recent Chats</div>
+                        <div id="my-chats-content">
+                            <div class="loader-spinner"></div>
+                        </div>
+                    </div>
+
+                    <!-- Clubs List -->
+                    <div id="clubs-list" class="users-list hidden">
+                        <div class="list-title">Available Clubs</div>
+                        <div id="clubs-content">
+                            <!-- Clubs injected here -->
+                        </div>
+                    </div>
+                </div>
+            </aside>
+
+            <!-- CHAT AREA -->
+            <main class="chat-area glass-panel">
+                <div id="empty-state" class="empty-view">
+                    <div class="empty-art">
+                        <i class="fa-brands fa-rocketchat"></i>
+                        <div class="art-glow"></div>
+                    </div>
+                    <h2>Welcome to the Den</h2>
+                    <p>Select a contact or join a club.</p>
+                </div>
+
+                <div id="chat-view" class="chat-view hidden">
+                    <header class="chat-header" id="partner-header-trigger">
+                        <button id="back-btn" class="icon-btn mobile-only"><i class="fa-solid fa-chevron-left"></i></button>
+                        <div class="chat-partner">
+                            <img id="partner-avatar" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
+                            <div class="partner-meta">
+                                <h3 id="partner-name">User</h3>
+                                <span id="partner-status">Offline</span>
+                            </div>
+                            
+                            <!-- Header Actions -->
+                            <div class="header-actions">
+                                <button class="icon-btn" onclick="event.stopPropagation(); clearChat()" title="Clear Chat History" style="margin-left: 15px;">
+                                    <i class="fa-solid fa-trash-can"></i>
+                                </button>
+                                <button class="icon-btn info-btn"><i class="fa-solid fa-circle-info"></i></button>
+                            </div>
+                        </div>
+                    </header>
+
+                    <div id="messages-feed" class="messages-feed"></div>
+
+                    <footer class="input-area">
+                        <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off">
+                        <button id="send-btn" class="send-btn hidden"><i class="fa-solid fa-paper-plane"></i></button>
+                    </footer>
+                </div>
+            </main>
+        </div>
+    </div>
+
+    <!-- MODALS (Profile Edit/View) -->
+    <div id="edit-profile-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-card slide-up">
+            <button class="close-modal" id="close-edit-profile"><i class="fa-solid fa-xmark"></i></button>
+            <div class="modal-header">
+                <h2>Edit Profile</h2>
+                <p>Update your public details</p>
+            </div>
+            <div class="modal-body">
+                <div class="avatar-large">
+                    <img id="edit-avatar-preview" src="">
+                    <div class="edit-badge"><i class="fa-solid fa-pen"></i></div>
+                </div>
+                <div class="input-group">
+                    <label>Display Name</label>
+                    <input type="text" id="edit-name">
+                </div>
+                <div class="input-group">
+                    <label>Bio / Status</label>
+                    <input type="text" id="edit-bio">
+                </div>
+                <div class="input-group">
+                    <label>Location</label>
+                    <input type="text" id="edit-location">
+                </div>
+                <button id="save-profile-btn" class="btn-primary">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="view-profile-modal" class="modal-overlay hidden">
+        <div class="modal-card glass-card slide-up">
+            <button class="close-modal" id="close-view-profile"><i class="fa-solid fa-xmark"></i></button>
+            <div class="profile-view-header">
+                <div class="profile-cover"></div>
+                <img id="view-avatar" src="" class="profile-pic-large">
+            </div>
+            <div class="profile-view-body">
+                <h2 id="view-name">User Name</h2>
+                <p id="view-id">@username</p>
+                <div class="status-pill" id="view-status-pill">Online</div>
+                <div class="profile-details">
+                    <div class="detail-item">
+                        <i class="fa-solid fa-quote-left"></i>
+                        <div id="view-bio">No bio available.</div>
+                    </div>
+                    <div class="detail-item">
+                        <i class="fa-solid fa-location-dot"></i>
+                        <div id="view-location">Unknown Location</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Firebase -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="script.js"></script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('sw.js')
+                .then(reg => console.log('SW Registered'))
+                .catch(err => console.log('SW Error:', err));
+        }
+    </script>
+</body>
+</html>
