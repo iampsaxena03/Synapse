@@ -14,6 +14,7 @@ if (!firebase.apps.length) {
 
 const auth = firebase.auth();
 const db = firebase.firestore();
+const FieldValue = firebase.firestore.FieldValue;
 
 db.enablePersistence({ synchronizeTabs: true }).catch(err => console.log("Persistence:", err.code));
 
@@ -26,7 +27,7 @@ const state = {
     activeTab: 'chats',
     isLoginMode: true,
     usersCache: new Map(),
-    pendingDelete: { id: null, isClub: false, isSender: false }, // Track what we are deleting
+    pendingDelete: { id: null, isClub: false, isSender: false },
     listeners: {
         messages: null,
         mainChats: null,
@@ -74,14 +75,13 @@ const escapeHtml = (text) => {
     return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 };
 
-// CRITICAL FIX: Robust Date Handler
 const getSafeDate = (timestamp) => {
-    if (!timestamp) return new Date(); // Handle latency (null timestamp)
-    if (timestamp.toDate) return timestamp.toDate(); // Handle Firestore Timestamp
-    if (timestamp instanceof Date) return timestamp; // Handle JS Date
-    if (typeof timestamp === 'number') return new Date(timestamp); // Handle Epoch
-    if (typeof timestamp === 'string') return new Date(timestamp); // Handle ISO String
-    return new Date(); // Fallback
+    if (!timestamp) return new Date(); 
+    if (timestamp.toDate) return timestamp.toDate();
+    if (timestamp instanceof Date) return timestamp;
+    if (typeof timestamp === 'number') return new Date(timestamp);
+    if (typeof timestamp === 'string') return new Date(timestamp);
+    return new Date();
 };
 
 // --- READ STATUS HELPERS ---
@@ -105,10 +105,19 @@ async function markMessagesAsRead(partnerId) {
 async function resetUnreadCount(partnerId) {
     if (!state.currentUser) return;
     try {
+        const row = document.getElementById(`user-row-${partnerId}`);
+        if(row) updateBadgeOnly(row, 0, partnerId);
+
         await db.collection('users').doc(state.currentUser.uid)
             .collection('activeChats').doc(partnerId)
-            .update({ unreadCount: 0 });
-    } catch (e) { console.warn("Reset count error:", e); }
+            .update({ unreadCount: 0 }); 
+    } catch (e) { 
+        if(e.code === 'not-found') {
+             await db.collection('users').doc(state.currentUser.uid)
+            .collection('activeChats').doc(partnerId)
+            .set({ unreadCount: 0 }, { merge: true });
+        }
+    }
 }
 
 async function updateClubReadStatus(clubId) {
@@ -116,7 +125,7 @@ async function updateClubReadStatus(clubId) {
     try {
         await db.collection('users').doc(state.currentUser.uid)
             .collection('clubStates').doc(clubId).set({
-                lastRead: firebase.firestore.FieldValue.serverTimestamp()
+                lastRead: FieldValue.serverTimestamp()
             }, { merge: true });
     } catch(e) { console.warn("Club read status error:", e); }
 }
@@ -234,7 +243,7 @@ function initApp() {
     updateOnlineStatus();
     state.intervals.heartbeat = setInterval(updateOnlineStatus, 15000); 
     state.intervals.statusWatcher = setInterval(checkAllUserStatuses, 10000);
-    injectDeleteModal(); // INJECT MODAL DYNAMICALLY
+    injectDeleteModal(); 
 
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
@@ -246,7 +255,6 @@ function initApp() {
     switchTab('chats');
 }
 
-// --- DYNAMIC MODAL INJECTION (FIXED) ---
 function injectDeleteModal() {
     if (document.getElementById('delete-options-modal')) return;
     const modalHtml = `
@@ -273,7 +281,6 @@ function injectDeleteModal() {
         document.getElementById('delete-options-modal').classList.add('hidden');
     };
     
-    // FIX: Connect directly to the window object's functions to prevent hoisting issues
     document.getElementById('btn-del-me').onclick = () => window.confirmDeleteForMe();
     document.getElementById('btn-del-everyone').onclick = () => window.confirmDeleteForEveryone();
 }
@@ -283,7 +290,7 @@ async function updateOnlineStatus() {
     try {
         await db.collection('users').doc(state.currentUser.uid).update({
             isOnline: true,
-            lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+            lastSeen: FieldValue.serverTimestamp()
         });
     } catch (e) {}
 }
@@ -656,7 +663,7 @@ function closeChatUI() {
     document.querySelectorAll('.user-item, .club-item').forEach(el => el.classList.remove('active'));
 }
 
-// --- CORE: LOAD MESSAGES & DATE LOGIC (FIXED TIMESTAMP CRASH) ---
+// --- CORE: LOAD MESSAGES & DATE LOGIC (OPTIMIZED RECEIVER SPEED) ---
 async function loadMessages(id, isClub) {
     if (state.listeners.messages) state.listeners.messages();
     dom.feed.innerHTML = '';
@@ -664,7 +671,6 @@ async function loadMessages(id, isClub) {
     state.scroll.allLoaded = false;
     state.currentChatParams.hiddenBefore = null;
     
-    // CAPTURE TARGET ID TO PREVENT RACE CONDITIONS
     const targetId = id;
 
     if (!isClub) {
@@ -672,10 +678,7 @@ async function loadMessages(id, isClub) {
             const metaDoc = await db.collection('users').doc(state.currentUser.uid)
                                    .collection('activeChats').doc(id).get();
             
-            // RACE CONDITION GUARD
-            if (state.currentChatUser?.uid !== targetId && state.currentClubData?.id !== targetId) {
-                return;
-            }
+            if (state.currentChatUser?.uid !== targetId && state.currentClubData?.id !== targetId) return;
 
             if (metaDoc.exists && metaDoc.data().hiddenBefore) {
                 state.currentChatParams.hiddenBefore = getSafeDate(metaDoc.data().hiddenBefore);
@@ -689,36 +692,45 @@ async function loadMessages(id, isClub) {
 
     state.listeners.messages = ref.orderBy('timestamp', 'asc').limitToLast(40).onSnapshot(snap => {
         if (!snap.empty) {
-            state.scroll.oldestSnapshot = snap.docs[0];
+            if (!state.scroll.oldestSnapshot) state.scroll.oldestSnapshot = snap.docs[0];
+            
+            // CRITICAL OPTIMIZATION: Reduced latency for Read Status
+            // Changed from 500ms to 50ms. 
+            // 50ms is enough to let the DOM paint, but fast enough to feel instant.
             if (document.visibilityState === 'visible') {
-                if (!isClub) {
-                    const hasUnread = snap.docs.some(doc => doc.data().senderId === id && !doc.data().read);
-                    if (hasUnread) { markMessagesAsRead(id); resetUnreadCount(id); }
-                } else {
-                    updateClubReadStatus(id);
-                }
+                setTimeout(() => {
+                    if (!isClub) {
+                        // Check local cache first to avoid unnecessary DB calls if already read
+                        const hasUnread = snap.docs.some(doc => doc.data().senderId === id && !doc.data().read);
+                        if (hasUnread) { 
+                            markMessagesAsRead(id); 
+                            resetUnreadCount(id); 
+                        }
+                    } else {
+                        updateClubReadStatus(id);
+                    }
+                }, 50); 
             }
         }
 
         let lastRenderedDate = null;
-        const lastDateBadge = dom.feed.querySelector('.date-separator:last-of-type .date-badge');
-        if (lastDateBadge) lastRenderedDate = lastDateBadge.textContent;
+        // BUG FIX: Using getElementsByClassName because :last-of-type selector fails when the last element is a message bubble (which is a DIV)
+        const separators = dom.feed.getElementsByClassName('date-separator');
+        if (separators.length > 0) {
+            const lastBadge = separators[separators.length - 1].querySelector('.date-badge');
+            if (lastBadge) lastRenderedDate = lastBadge.textContent;
+        }
 
         snap.docChanges().forEach(change => {
             const doc = change.doc;
             const data = doc.data();
 
-            // Check if deleted for ME specifically
-            if (data.deletedFor && data.deletedFor.includes(state.currentUser.uid)) {
-                return; // Do not render
-            }
+            if (data.deletedFor && data.deletedFor.includes(state.currentUser.uid)) return;
 
             const safeDate = getSafeDate(data.timestamp);
 
             if (change.type === 'added') {
-                if (state.currentChatParams.hiddenBefore && safeDate < state.currentChatParams.hiddenBefore) {
-                    return; 
-                }
+                if (state.currentChatParams.hiddenBefore && safeDate < state.currentChatParams.hiddenBefore) return;
 
                 if (!document.getElementById(`msg-${doc.id}`)) {
                     const msgDate = getFriendlyDate(safeDate);
@@ -736,7 +748,6 @@ async function loadMessages(id, isClub) {
             else if (change.type === 'modified') {
                 const existing = document.getElementById(`msg-${change.doc.id}`);
                 if (existing) {
-                    // If newly deleted for me, remove it
                     if (data.deletedFor && data.deletedFor.includes(state.currentUser.uid)) {
                         existing.remove();
                         return;
@@ -745,10 +756,12 @@ async function loadMessages(id, isClub) {
                     if (data.isDeleted && !existing.classList.contains('deleted')) {
                         const newBubble = createMessageBubble(data, change.doc.id, isClub);
                         existing.replaceWith(newBubble);
-                    }
-                    if (!isClub && data.read) {
+                    } else if (!isClub && data.read) {
                         const tick = existing.querySelector('.tick-icon');
                         if (tick) { tick.classList.remove('tick-grey'); tick.classList.add('tick-blue'); }
+                    } else if (data.content !== existing.querySelector('.msg-bubble span').textContent) {
+                         const newBubble = createMessageBubble(data, change.doc.id, isClub);
+                         existing.replaceWith(newBubble);
                     }
                 }
             }
@@ -870,7 +883,6 @@ function createMessageBubble(msg, id, isClub) {
             `<div class="sender-name">${escapeHtml(msg.displayName || 'User')}</div>`;
     }
 
-    // UPDATED ACTION MENU: Available for everyone
     const actionMenu = `
         <div class="msg-action-menu">
             <button class="action-btn" onclick="event.stopPropagation(); window.promptDelete('${id}', ${isClub}, ${isSent})" title="Delete Options">
@@ -881,7 +893,7 @@ function createMessageBubble(msg, id, isClub) {
 
     div.innerHTML = `
         ${actionMenu}
-        <div class="msg-bubble" onclick="window.toggleActions(this)">
+        <div class="msg-bubble" onclick="window.toggleActions(this)" oncontextmenu="window.handleContextMenu(event, this)">
             ${sender}
             <span>${escapeHtml(msg.content)}</span>
             <div class="msg-meta">${meta}</div>
@@ -901,13 +913,17 @@ window.toggleActions = (bubble) => {
     }
 };
 
+window.handleContextMenu = (event, bubble) => {
+    event.preventDefault(); // Stop default right-click menu
+    window.toggleActions(bubble);
+};
+
 window.promptDelete = (msgId, isClub, isSender) => {
     state.pendingDelete = { id: msgId, isClub: isClub, isSender: isSender };
     
     const modal = document.getElementById('delete-options-modal');
     const btnEveryone = document.getElementById('btn-del-everyone');
     
-    // Only show "Delete for Everyone" if you are the sender
     if (isSender) {
         btnEveryone.classList.remove('hidden');
     } else {
@@ -917,50 +933,68 @@ window.promptDelete = (msgId, isClub, isSender) => {
     modal.classList.remove('hidden');
 };
 
+// --- ROBUST DELETE FUNCTIONS ---
 window.confirmDeleteForMe = async () => {
     const { id, isClub } = state.pendingDelete;
-    if (!id) return;
     document.getElementById('delete-options-modal').classList.add('hidden');
-    
-    // Safety check
-    if (!state.currentChatUser && !state.currentClubData) return;
+
+    if (!id || !state.currentUser) return;
 
     try {
-        let ref = isClub ? 
-            db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(id) : 
-            db.collection('chats').doc([state.currentUser.uid, state.currentChatUser.uid].sort().join('_')).collection('messages').doc(id);
-
-        // Update 'deletedFor' array instead of deleting doc
-        await ref.set({
-            deletedFor: firebase.firestore.FieldValue.arrayUnion(state.currentUser.uid)
-        }, { merge: true });
+        let ref;
         
-        // Remove from DOM immediately
+        if (isClub) {
+             if (!state.currentClubData || !state.currentClubData.id) throw new Error("Club context missing");
+             ref = db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(id);
+        } else {
+             if (!state.currentChatUser || !state.currentChatUser.uid) throw new Error("Chat user context missing");
+             const chatId = [state.currentUser.uid, state.currentChatUser.uid].sort().join('_');
+             ref = db.collection('chats').doc(chatId).collection('messages').doc(id);
+        }
+
+        await ref.update({
+            deletedFor: FieldValue.arrayUnion(state.currentUser.uid)
+        });
+        
         const row = document.getElementById(`msg-${id}`);
         if(row) row.remove();
 
-    } catch(e) { alert("Could not delete message"); console.error(e); }
+    } catch(e) { 
+        console.error("Delete Error:", e);
+        if (e.code === 'not-found') {
+             alert("Message not found or already deleted.");
+        } else {
+             alert("Delete Failed: " + e.message); 
+        }
+    }
 };
 
 window.confirmDeleteForEveryone = async () => {
     const { id, isClub } = state.pendingDelete;
-    if (!id) return;
     document.getElementById('delete-options-modal').classList.add('hidden');
 
-    // Safety check
-    if (!state.currentChatUser && !state.currentClubData) return;
+    if (!id || !state.currentUser) return;
 
     try {
-        let ref = isClub ? 
-            db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(id) : 
-            db.collection('chats').doc([state.currentUser.uid, state.currentChatUser.uid].sort().join('_')).collection('messages').doc(id);
+        let ref;
+        if (isClub) {
+             if (!state.currentClubData || !state.currentClubData.id) throw new Error("Club context missing");
+             ref = db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(id);
+        } else {
+             if (!state.currentChatUser || !state.currentChatUser.uid) throw new Error("Chat user context missing");
+             const chatId = [state.currentUser.uid, state.currentChatUser.uid].sort().join('_');
+             ref = db.collection('chats').doc(chatId).collection('messages').doc(id);
+        }
 
         await ref.update({
             isDeleted: true,
             content: '', 
             type: 'deleted'
         });
-    } catch(e) { alert("Could not unsend message"); console.error(e); }
+    } catch(e) { 
+        console.error("Unsend Error:", e);
+        alert("Unsend Failed: " + e.message + ". Only sender can unsend."); 
+    }
 };
 
 window.clearChat = async () => {
@@ -969,36 +1003,93 @@ window.clearChat = async () => {
         const partnerId = state.currentChatUser.uid;
         await db.collection('users').doc(state.currentUser.uid)
                 .collection('activeChats').doc(partnerId)
-                .set({ hiddenBefore: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                .set({ hiddenBefore: FieldValue.serverTimestamp() }, { merge: true });
         loadMessages(partnerId, false); 
     } catch(e) { console.error("Clear chat error", e); }
 };
 
-// --- SEND & TYPING ---
+// --- OPTIMISTIC SENDING (INSTANT UI) ---
 const sendMsg = async () => {
     const input = document.getElementById('msg-input');
     const txt = input.value.trim();
     if (!txt || (!state.currentChatUser && !state.currentClubData)) return;
 
+    // 1. Clear Input Immediately
     input.value = '';
     document.getElementById('send-btn').classList.add('hidden');
     stopTyping();
 
     const safeTxt = txt.replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const ts = firebase.firestore.FieldValue.serverTimestamp();
+    const ts = FieldValue.serverTimestamp();
 
+    // 2. Prepare References
+    let ref;
+    let msgId;
+    let isClub = !!state.currentClubData;
+
+    if (isClub) {
+        ref = db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc();
+    } else {
+        const chatId = [state.currentUser.uid, state.currentChatUser.uid].sort().join('_');
+        ref = db.collection('chats').doc(chatId).collection('messages').doc();
+    }
+    
+    // 3. Get Generated ID
+    msgId = ref.id;
+
+    // 4. Create Optimistic Local Data
+    const localData = {
+        content: safeTxt,
+        senderId: state.currentUser.uid,
+        displayName: state.currentUser.displayName || 'Me',
+        type: 'text',
+        timestamp: new Date(), // Local time for instant display
+        read: false,
+        isDeleted: false
+    };
+
+    // 5. Render Immediately
+    // Only render if we don't have it (we shouldn't)
+    if (!document.getElementById(`msg-${msgId}`)) {
+        // FIX: Check if we need to add a "Today" separator locally first
+        const separators = dom.feed.getElementsByClassName('date-separator');
+        let lastDate = null;
+        if (separators.length > 0) {
+            const badge = separators[separators.length - 1].querySelector('.date-badge');
+            if (badge) lastDate = badge.textContent;
+        }
+
+        const currentDate = getFriendlyDate(new Date());
+        if (currentDate !== lastDate) {
+            dom.feed.appendChild(createDateSeparator(currentDate));
+        }
+
+        const bubble = createMessageBubble(localData, msgId, isClub);
+        dom.feed.appendChild(bubble);
+        dom.feed.scrollTop = dom.feed.scrollHeight;
+    }
+
+    // 6. Send to Background
     try {
-        if (state.currentClubData) {
-            await db.collection('clubs').doc(state.currentClubData.id).collection('messages').add({
-                content: safeTxt, senderId: state.currentUser.uid, displayName: state.currentUser.displayName,
-                type: 'text', timestamp: ts
+        if (isClub) {
+            // Use SET with specific ID so it matches the DOM element we just created
+            await ref.set({
+                content: safeTxt, 
+                senderId: state.currentUser.uid, 
+                displayName: state.currentUser.displayName,
+                type: 'text', 
+                timestamp: ts
             });
             await db.collection('clubs').doc(state.currentClubData.id).update({ lastMessageAt: ts });
             updateClubReadStatus(state.currentClubData.id);
         } else {
-            const chatId = [state.currentUser.uid, state.currentChatUser.uid].sort().join('_');
-            await db.collection('chats').doc(chatId).collection('messages').add({
-                content: safeTxt, senderId: state.currentUser.uid, type: 'text', read: false, timestamp: ts
+            // Use SET for direct chat as well
+            await ref.set({
+                content: safeTxt, 
+                senderId: state.currentUser.uid, 
+                type: 'text', 
+                read: false, 
+                timestamp: ts
             });
             
             const batch = db.batch();
@@ -1006,10 +1097,16 @@ const sendMsg = async () => {
             batch.set(myRef, { timestamp: ts }, { merge: true });
 
             const partnerRef = db.collection('users').doc(state.currentChatUser.uid).collection('activeChats').doc(state.currentUser.uid);
-            batch.set(partnerRef, { timestamp: ts, unreadCount: firebase.firestore.FieldValue.increment(1) }, { merge: true });
+            batch.set(partnerRef, { timestamp: ts, unreadCount: FieldValue.increment(1) }, { merge: true });
+            
             await batch.commit();
         }
-    } catch (e) { console.error("Send error", e); }
+    } catch (e) { 
+        console.error("Send error", e); 
+        // Optional: Add visual error state to bubble (e.g., red color)
+        const bubble = document.getElementById(`msg-${msgId}`);
+        if (bubble) bubble.style.opacity = '0.5'; 
+    }
 };
 
 document.getElementById('send-btn').addEventListener('click', sendMsg);
@@ -1029,7 +1126,7 @@ document.getElementById('msg-input').addEventListener('input', e => {
 
 async function sendTypingSignal() {
     if (!state.currentUser) return;
-    const ts = firebase.firestore.FieldValue.serverTimestamp();
+    const ts = FieldValue.serverTimestamp();
     const data = { isTyping: true, timestamp: ts, displayName: state.currentUser.displayName };
     try {
         if (state.currentChatUser) {
@@ -1162,7 +1259,7 @@ dom.authBtn.addEventListener('click', async () => {
             await db.collection('users').doc(cred.user.uid).set({
                 uid: cred.user.uid, displayName: name, customId: uid, email, photoURL: avatar,
                 bio: 'Hey there! I am using Prasoon\'s Den.', location: 'Unknown',
-                isOnline: true, lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+                isOnline: true, lastSeen: FieldValue.serverTimestamp()
             });
         }
     } catch(e) {
@@ -1184,7 +1281,7 @@ dom.toggleBtn.addEventListener('click', () => {
 document.getElementById('logout-btn').addEventListener('click', async () => {
     if(state.currentUser) {
         await db.collection('users').doc(state.currentUser.uid).update({ 
-            isOnline: false, lastSeen: firebase.firestore.FieldValue.serverTimestamp() 
+            isOnline: false, lastSeen: FieldValue.serverTimestamp() 
         }).catch(()=>{});
     }
     await auth.signOut();
