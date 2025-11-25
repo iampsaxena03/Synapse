@@ -1,10 +1,10 @@
 {
-  "name": "Prasoon's Den",
-  "short_name": "Den",
+  "name": "Synapse",
+  "short_name": "Synapse",
   "start_url": "./index.html",
   "display": "standalone",
-  "background_color": "#1a0b2e",
-  "theme_color": "#1a0b2e",
+  "background_color": "#0f0c29",
+  "theme_color": "#0f0c29",
   "orientation": "portrait-primary",
   "icons": [
     {
