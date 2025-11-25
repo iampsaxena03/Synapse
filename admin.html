@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Synapse // OVERWATCH</title>
+    
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- ADMIN SPECIFIC STYLE (Isolated) -->
+    <link rel="stylesheet" href="admin.css">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+</head>
+<body>
+
+    <div class="background-mesh"></div>
+
+    <!-- GATEKEEPER -->
+    <div id="admin-gate" class="screen">
+        <div class="glass-card auth-card slide-up">
+            <div class="logo-area">
+                <div class="logo-icon" style="color: #fdcb6e;"><i class="fa-solid fa-user-secret"></i></div>
+                <h1>Overwatch</h1>
+                <p>Restricted Access Terminal</p>
+            </div>
+            <div class="auth-form">
+                <div class="input-group">
+                    <i class="fa-solid fa-fingerprint"></i>
+                    <input type="text" id="gate-id" placeholder="Identification ID" autocomplete="off">
+                </div>
+                <div class="input-group">
+                    <i class="fa-solid fa-key"></i>
+                    <input type="password" id="gate-pass" placeholder="Passphrase">
+                </div>
+                <p id="gate-error" class="error-msg"></p>
+                <button id="gate-btn" class="btn-primary">Authorize Access</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="admin-dashboard" class="screen hidden">
+        <div class="admin-layout glass-panel">
+            
+            <aside class="sidebar">
+                <div class="sidebar-header">
+                    <h2>ADMIN</h2>
+                </div>
+                <div class="sidebar-nav">
+                    <button class="nav-tab active" onclick="switchView('users')"><i class="fa-solid fa-users"></i> User Directory</button>
+                    <button class="nav-tab" onclick="switchView('clubs')"><i class="fa-solid fa-layer-group"></i> Club Manager</button>
+                    <button class="nav-tab" onclick="switchView('analytics')"><i class="fa-solid fa-chart-pie"></i> Data Visualizer</button>
+                </div>
+                <div class="sidebar-footer">
+                    <button onclick="location.reload()" class="nav-tab btn-exit">
+                        <i class="fa-solid fa-power-off"></i> EXIT
+                    </button>
+                </div>
+            </aside>
+
+            <main class="main-content">
+                <div class="content-header">
+                    <div>
+                        <h2 id="page-title">User Management</h2>
+                        <p class="subtitle">Real-Time Uplink Established (20s Heartbeat)</p>
+                    </div>
+                    <div>
+                        <span id="live-clock">--:--:--</span>
+                    </div>
+                </div>
+
+                <!-- USERS VIEW -->
+                <div id="view-users" class="fade-in view-section">
+                    <div class="stat-grid">
+                        <div class="glass-card stat-card">
+                            <span class="stat-label">TOTAL POPULATION</span>
+                            <div class="stat-num" id="stat-total">0</div>
+                            <div class="stat-bar" style="background: #6c5ce7;"></div>
+                        </div>
+                        <div class="glass-card stat-card">
+                            <span class="stat-label">ONLINE AGENTS</span>
+                            <div class="stat-num" id="stat-online" style="color: #00b894;">0</div>
+                            <div class="stat-bar" style="background: #00b894;"></div>
+                        </div>
+                    </div>
+                    <div class="glass-card table-wrapper">
+                        <div class="table-container">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>User</th>
+                                        <th>Custom ID</th>
+                                        <th>Last Seen</th>
+                                        <th>Status</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="users-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CLUBS VIEW -->
+                <div id="view-clubs" class="fade-in hidden view-section">
+                    <div class="club-creator">
+                        <i class="fa-solid fa-plus-circle" style="color: #fdcb6e; font-size: 20px;"></i>
+                        <input type="text" id="new-club-name" class="club-input" placeholder="Enter New Club Name">
+                        <select id="new-club-icon" class="club-input icon-select">
+                            <option value="fa-solid fa-users">Default Icon</option>
+                            <option value="fa-solid fa-crown">Royal</option>
+                            <option value="fa-solid fa-gamepad">Gaming</option>
+                            <option value="fa-solid fa-code">Tech</option>
+                            <option value="fa-solid fa-mask">Anonymous</option>
+                        </select>
+                        <button class="btn-create" id="btn-create-club">Create Official Club</button>
+                    </div>
+
+                    <div class="glass-card table-wrapper">
+                        <div class="table-container">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>Club Name</th>
+                                        <th>Type</th>
+                                        <th>Club ID</th>
+                                        <th>Control</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="clubs-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ANALYTICS VIEW -->
+                <div id="view-analytics" class="fade-in hidden view-section">
+                    <div class="glass-card chart-container">
+                        <h3 class="chart-title">User Activity Distribution</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="userChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+            </main>
+        </div>
+    </div>
+
+    <!-- ADMIN LOGIC -->
+    <script type="module" src="js/admin.js"></script>
+</body>
+</html>

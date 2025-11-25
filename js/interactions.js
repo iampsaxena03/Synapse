@@ -2,7 +2,6 @@ import { dom } from './dom.js';
 import { state } from './state.js';
 import { db, FieldValue } from './config.js';
 import { escapeHtml, triggerHaptic } from './utils.js';
-import { loadForwardList } from './messages.js';
 
 // --- CONTEXT MENU MANAGER ---
 export const ContextMenu = {
@@ -13,14 +12,12 @@ export const ContextMenu = {
     },
     
     show(e, msgData, isClub, isSent) {
-        // Close inline menu first if open
         document.querySelectorAll('.msg-row.show-actions').forEach(el => el.classList.remove('show-actions'));
         
         const overlay = dom.contextMenuOverlay;
         overlay.innerHTML = '';
         overlay.classList.remove('hidden');
 
-        // Build Menu Items
         let itemsHtml = `
             <div class="context-item" onclick="window.startReply('${escapeHtml(JSON.stringify(msgData)).replace(/"/g, '&quot;')}', ${isClub}); ContextMenu.hide()">
                 <i class="fa-solid fa-reply"></i> Reply
@@ -52,7 +49,6 @@ export const ContextMenu = {
         menu.innerHTML = itemsHtml;
         overlay.appendChild(menu);
 
-        // Positioning Logic
         if (window.innerWidth <= 768) {
             overlay.classList.add('mobile-active');
         } else {
@@ -66,7 +62,6 @@ export const ContextMenu = {
     }
 };
 
-// Make ContextMenu global so HTML onClick handlers can find it
 window.ContextMenu = ContextMenu;
 
 // --- GESTURE MANAGER ---
@@ -75,8 +70,14 @@ export function attachGestures(element, msgData, isClub, isSent) {
     let touchStartY = 0;
     let longPressTimer;
     let isSwiping = false;
+    
+    // TRIPLE TAP VARIABLES
+    let tapCount = 0;
+    let tapTimer = null;
+    
     const bubble = element.querySelector('.msg-bubble');
 
+    // 1. Long Press
     const startLongPress = (e) => {
         longPressTimer = setTimeout(() => {
             if (!isSwiping) {
@@ -89,6 +90,7 @@ export function attachGestures(element, msgData, isClub, isSent) {
 
     const cancelLongPress = () => clearTimeout(longPressTimer);
 
+    // 2. Touch/Swipe
     element.addEventListener('touchstart', (e) => {
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
@@ -124,7 +126,6 @@ export function attachGestures(element, msgData, isClub, isSent) {
 
         const deltaX = e.changedTouches[0].clientX - touchStartX;
         
-        // Handle Swipe Action
         if (Math.abs(deltaX) > 60 && isSwiping) {
             if ((isSent && deltaX < -50) || (!isSent && deltaX > 50)) {
                 triggerHaptic();
@@ -140,14 +141,39 @@ export function attachGestures(element, msgData, isClub, isSent) {
         ContextMenu.show(e, msgData, isClub, isSent);
     });
 
+    // 3. CLICK HANDLER (Single & Triple Tap)
     element.addEventListener('click', (e) => {
         if (isSwiping) return;
-        // Don't toggle inline menu if context menu is open
         if (!dom.contextMenuOverlay.classList.contains('hidden')) return;
-        
-        // Prevent accidental double firing
+
+        e.preventDefault(); 
         e.stopPropagation();
-        window.toggleActions(bubble);
+
+        tapCount++;
+        clearTimeout(tapTimer);
+
+        if (tapCount >= 3) {
+            // TRIPLE TAP DETECTED
+            tapCount = 0;
+            triggerHaptic();
+            
+            // Logic: Edit if it's my text message, otherwise Reply
+            if (isSent && msgData.type === 'text') {
+                window.startEdit(JSON.stringify(msgData), isClub);
+            } else {
+                window.startReply(JSON.stringify(msgData), isClub);
+            }
+
+            document.querySelectorAll('.msg-row.show-actions').forEach(el => el.classList.remove('show-actions'));
+        } else {
+            // Wait 300ms for next tap
+            tapTimer = setTimeout(() => {
+                if (tapCount === 1) {
+                    window.toggleActions(bubble);
+                }
+                tapCount = 0;
+            }, 300);
+        }
     });
 }
 
@@ -253,32 +279,6 @@ window.cancelInputMode = () => {
 window.startForward = (content) => {
     state.forwardContent = content;
     dom.forwardModal.classList.remove('hidden');
-    loadForwardList('chats'); 
+    if(window.loadForwardList) window.loadForwardList('chats'); 
     document.querySelectorAll('.msg-row.show-actions').forEach(el => el.classList.remove('show-actions'));
 };
-```
-
----
-
-### 2. Removing the "Password/Card Bar" (Accessory View)
-
-That bar appears because mobile browsers (especially Chrome/Android) try to suggest autocomplete data (emails, passwords, credit cards) whenever an input field is focused.
-
-To remove it, you need to modify your `index.html`. You need to be very specific with the attributes on the input field.
-
-**Steps:**
-1. Open `index.html`.
-2. Find the `<input id="msg-input" ...>` line inside the `input-wrapper`.
-3. Replace it with the following line.
-
-**The Fix:**
-```html
-<input 
-    type="text" 
-    id="msg-input" 
-    placeholder="Type a message..." 
-    autocomplete="off" 
-    autocorrect="off" 
-    spellcheck="false" 
-    name="chat_message_v1"
->

@@ -31,6 +31,15 @@ export function setupAuthListener(onLoginSuccess, onLogoutCleanup) {
 }
 
 function processLogin(user, data, callback) {
+    // --- SECURITY CHECK ---
+    if (data.isBanned) {
+        alert("ACCESS DENIED: Your account has been suspended by the Administrator.");
+        auth.signOut();
+        window.location.reload();
+        return;
+    }
+    // ----------------------
+
     state.currentUser = user;
     updateMyProfileUI(data);
     revealApp();

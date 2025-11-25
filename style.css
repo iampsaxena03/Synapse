@@ -322,6 +322,8 @@ body {
 .msg-row.show-actions .msg-bubble {
     filter: brightness(1.2);
     transform: scale(0.98); 
+    /* Optimize */
+    will-change: transform, filter;
 }
 
 .msg-action-menu {
@@ -330,10 +332,13 @@ body {
     transform: translateY(-50%);
     opacity: 0;
     pointer-events: none;
-    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    /* Faster timing for snappier feel: 0.2s instead of 0.3s */
+    transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     display: flex;
     gap: 8px;
     z-index: 50; 
+    /* Optimize */
+    will-change: opacity, transform;
 }
 
 .msg-row.sent .msg-action-menu { 
@@ -354,11 +359,13 @@ body {
     opacity: 1;
     pointer-events: auto;
 }
+
+/* Ensure simpler transform during active state to reduce GPU load */
 .msg-row.sent.show-actions .msg-action-menu { transform: translateY(-50%) translateX(0); }
 .msg-row.received.show-actions .msg-action-menu { transform: translateY(-50%) translateX(0); }
 
 .action-btn {
-    background: rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.15); /* Slightly more opaque since we removed blur */
     border: none;
     color: var(--text-secondary);
     width: 32px; 
@@ -370,9 +377,11 @@ body {
     justify-content: center;
     font-size: 14px;
     box-shadow: 0 4px 10px rgba(0,0,0,0.3);
-    backdrop-filter: blur(4px);
-    transition: 0.2s;
+    /* REMOVED backdrop-filter to fix lag */
+    transition: transform 0.15s;
 }
+
+.action-btn:active { transform: scale(0.9); }
 .action-btn:hover { background: var(--accent-color); color: white; transform: scale(1.1); }
 .action-btn.delete-btn:hover { background: var(--danger); }
 

@@ -493,7 +493,6 @@ export function listenForTyping(id, isClub) {
     });
 }
 
-// Forward List Logic (exported so interactions.js can call it via window or imports)
 export function loadForwardList(type) {
     if (type === 'chats') {
         document.getElementById('fwd-tab-chats').classList.add('active');
@@ -538,6 +537,9 @@ export function loadForwardList(type) {
         });
     }
 }
+
+// FIX: Expose loadForwardList to window to allow interactions.js to call it without importing
+window.loadForwardList = loadForwardList;
 
 // Attach globals
 window.scrollToMsg = (id) => {
