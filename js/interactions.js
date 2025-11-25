@@ -2,7 +2,7 @@ import { dom } from './dom.js';
 import { state } from './state.js';
 import { db, FieldValue } from './config.js';
 import { escapeHtml, triggerHaptic } from './utils.js';
-import { loadForwardList } from './messages.js'; // Helper needed for forward modal
+import { loadForwardList } from './messages.js';
 
 // --- CONTEXT MENU MANAGER ---
 export const ContextMenu = {
@@ -123,12 +123,15 @@ export function attachGestures(element, msgData, isClub, isSent) {
         bubble.style.transform = 'translateX(0)';
 
         const deltaX = e.changedTouches[0].clientX - touchStartX;
+        
+        // Handle Swipe Action
         if (Math.abs(deltaX) > 60 && isSwiping) {
             if ((isSent && deltaX < -50) || (!isSent && deltaX > 50)) {
                 triggerHaptic();
                 window.startReply(JSON.stringify(msgData), isClub);
             }
         }
+        
         setTimeout(() => { isSwiping = false; }, 100);
     });
 
@@ -139,7 +142,11 @@ export function attachGestures(element, msgData, isClub, isSent) {
 
     element.addEventListener('click', (e) => {
         if (isSwiping) return;
+        // Don't toggle inline menu if context menu is open
         if (!dom.contextMenuOverlay.classList.contains('hidden')) return;
+        
+        // Prevent accidental double firing
+        e.stopPropagation();
         window.toggleActions(bubble);
     });
 }
@@ -246,6 +253,32 @@ window.cancelInputMode = () => {
 window.startForward = (content) => {
     state.forwardContent = content;
     dom.forwardModal.classList.remove('hidden');
-    loadForwardList('chats'); // Function from messages.js imported via global window or similar
+    loadForwardList('chats'); 
     document.querySelectorAll('.msg-row.show-actions').forEach(el => el.classList.remove('show-actions'));
 };
+```
+
+---
+
+### 2. Removing the "Password/Card Bar" (Accessory View)
+
+That bar appears because mobile browsers (especially Chrome/Android) try to suggest autocomplete data (emails, passwords, credit cards) whenever an input field is focused.
+
+To remove it, you need to modify your `index.html`. You need to be very specific with the attributes on the input field.
+
+**Steps:**
+1. Open `index.html`.
+2. Find the `<input id="msg-input" ...>` line inside the `input-wrapper`.
+3. Replace it with the following line.
+
+**The Fix:**
+```html
+<input 
+    type="text" 
+    id="msg-input" 
+    placeholder="Type a message..." 
+    autocomplete="off" 
+    autocorrect="off" 
+    spellcheck="false" 
+    name="chat_message_v1"
+>

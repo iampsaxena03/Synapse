@@ -67,6 +67,42 @@ document.addEventListener('visibilitychange', () => {
     }
 });
 
+// 1. ADD THIS NEW LISTENER HERE:
+dom.closeContextBtn.addEventListener('click', () => {
+    window.cancelInputMode();
+});
+
+// Visibility API
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+        updateOnlineStatus();
+        // Refresh read status
+        if (state.currentChatUser) {
+            markMessagesAsRead(state.currentChatUser.uid);
+            resetUnreadCount(state.currentChatUser.uid);
+        }
+        if (state.currentClubData) {
+            updateClubReadStatus(state.currentClubData.id);
+        }
+    }
+});
+
+// Scroll Logic
+dom.feed.addEventListener('scroll', () => {
+    if (dom.feed.scrollTop === 0 && !state.scroll.isFetching && !state.scroll.allLoaded && (state.currentChatUser || state.currentClubData)) {
+        loadMoreMessages();
+    }
+});
+
+// Tab Navigation
+dom.tabChats.addEventListener('click', () => switchTab('chats'));
+dom.tabClubs.addEventListener('click', () => switchTab('clubs'));
+
+// Close Context Menu on outside click
+dom.contextMenuOverlay.addEventListener('click', (e) => {
+    if (e.target === dom.contextMenuOverlay) ContextMenu.hide();
+});
+
 // Scroll Logic
 dom.feed.addEventListener('scroll', () => {
     if (dom.feed.scrollTop === 0 && !state.scroll.isFetching && !state.scroll.allLoaded && (state.currentChatUser || state.currentClubData)) {
@@ -91,3 +127,4 @@ if(dom.backBtn) {
 // --- STARTUP ---
 // Connect Auth to App Logic
 setupAuthListener(initApp, cleanupApp);
+
