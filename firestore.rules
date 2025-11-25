@@ -54,13 +54,11 @@ service cloud.firestore {
       allow write: if false; 
     }
 
-    // --- 2. USERS (UPDATED FOR ADMIN DELETE) ---
+    // --- 2. USERS ---
     match /users/{userId} {
       allow read: if true;
       
-      // ALLOW WRITE IF:
-      // 1. User is editing themselves
-      // 2. OR The Admin (logged in Anonymously) is performing an action (like DELETE/BAN)
+      // Allow User to edit self OR Admin (Anonymous) to Delete/Ban
       allow write: if (isAuthenticated() && request.auth.uid == userId) || 
                       (request.auth.token.firebase.sign_in_provider == 'anonymous');
 
@@ -99,10 +97,15 @@ service cloud.firestore {
       }
     }
 
-    // --- 4. CLUBS ---
+    // --- 4. CLUBS (FIXED) ---
     match /clubs/{clubId} {
+      // Allow Read to all authenticated users
       allow read: if isAuthenticated();
-      allow update: if isAuthenticated(); 
+      
+      // FIX: Allow Create, Update, AND Delete
+      // We check if the user is authenticated. 
+      // (Since your Admin logs in Anonymously, they are "Authenticated" and pass this check)
+      allow create, update, delete: if isAuthenticated(); 
       
       match /messages/{msgId} {
         allow read: if isAuthenticated();

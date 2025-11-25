@@ -172,47 +172,88 @@ function updateBadgeOnly(div, count, partnerId) {
     }
 }
 
+// --- NEW FLUID LOGIC: TWO-STREAM LOADER ---
 export function loadClubs() {
-    if (state.listeners.clubs) state.listeners.clubs();
+    // 1. Clean up OLD listeners (Support both array and single function)
+    if (state.listeners.clubs) {
+        if (Array.isArray(state.listeners.clubs)) {
+            state.listeners.clubs.forEach(u => u());
+        } else if (typeof state.listeners.clubs === 'function') {
+            state.listeners.clubs();
+        }
+    }
+
     const content = dom.clubsContent;
     if (content.children.length === 0) content.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5">Loading clubs...</div>';
 
-    // FIX APPLIED HERE: Removed .orderBy() to allow "broken" clubs to load
-    state.listeners.clubs = db.collection('clubs').onSnapshot(snap => {
-        if (content.innerHTML.includes('Loading clubs')) content.innerHTML = '';
-        if (snap.empty) {
+    // 2. Local State for Merging
+    const publicClubs = new Map();
+    const myClubs = new Map();
+
+    // 3. Render Logic (Merges both streams)
+    const render = () => {
+        // Merge Map: "My Clubs" overwrite "Public" if duplicate (ensures I see my membership)
+        const merged = new Map([...publicClubs, ...myClubs]);
+        const sortedDocs = Array.from(merged.values()).sort((a, b) => {
+             const timeA = a.lastMessageAt ? a.lastMessageAt.toMillis() : (a.createdAt ? a.createdAt.toMillis() : 0);
+             const timeB = b.lastMessageAt ? b.lastMessageAt.toMillis() : (b.createdAt ? b.createdAt.toMillis() : 0);
+             return timeB - timeA;
+        });
+
+        // Clear Loading Text
+        if (content.innerHTML.includes('Loading')) content.innerHTML = '';
+        if (sortedDocs.length === 0) {
             content.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5">No clubs found</div>';
             return;
         }
 
-        // --- SORT IN MEMORY ---
-        // This ensures clubs without 'lastMessageAt' still appear (sorted by createdAt or unsorted)
-        const sortedDocs = snap.docs.sort((a, b) => {
-             const dataA = a.data();
-             const dataB = b.data();
-             
-             // Prioritize lastMessageAt, fall back to createdAt, default to 0
-             const timeA = dataA.lastMessageAt ? dataA.lastMessageAt.toMillis() : (dataA.createdAt ? dataA.createdAt.toMillis() : 0);
-             const timeB = dataB.lastMessageAt ? dataB.lastMessageAt.toMillis() : (dataB.createdAt ? dataB.createdAt.toMillis() : 0);
-             
-             return timeB - timeA; // Descending
-        });
-
-        sortedDocs.forEach(doc => {
-            const club = doc.data();
-            const id = doc.id;
-            let el = document.getElementById(`club-${id}`);
+        const visibleIds = new Set();
+        
+        sortedDocs.forEach(club => {
+            visibleIds.add(club.id);
+            let el = document.getElementById(`club-${club.id}`);
 
             if (el) {
-                content.appendChild(el); 
+                content.appendChild(el); // Move to sorted position
                 updateClubContent(el, club);
             } else {
-                el = createClubElement(club, id);
+                el = createClubElement(club, club.id);
                 content.appendChild(el);
             }
-            attachClubReadListener(el, id, club.lastMessageAt);
+            attachClubReadListener(el, club.id, club.lastMessageAt);
         });
-    });
+
+        // Remove Stale Elements (Clubs that became private or deleted)
+        Array.from(content.children).forEach(el => {
+            const id = el.id.replace('club-', '');
+            if (!visibleIds.has(id)) el.remove();
+        });
+    };
+
+    // 4. STREAM A: PUBLIC CLUBS (Anyone can see)
+    const unsubPublic = db.collection('clubs')
+        .where('isPrivate', '==', false)
+        .onSnapshot(snap => {
+            snap.docChanges().forEach(change => {
+                if (change.type === 'removed') publicClubs.delete(change.doc.id);
+                else publicClubs.set(change.doc.id, { id: change.doc.id, ...change.doc.data() });
+            });
+            render();
+        });
+
+    // 5. STREAM B: MY CLUBS (Private clubs I belong to)
+    const unsubPrivate = db.collection('clubs')
+        .where('members', 'array-contains', state.currentUser.uid)
+        .onSnapshot(snap => {
+            snap.docChanges().forEach(change => {
+                if (change.type === 'removed') myClubs.delete(change.doc.id);
+                else myClubs.set(change.doc.id, { id: change.doc.id, ...change.doc.data() });
+            });
+            render();
+        });
+
+    // Store both unsubs
+    state.listeners.clubs = [unsubPublic, unsubPrivate];
 }
 
 function updateClubContent(div, club) {
@@ -275,6 +316,11 @@ export async function openChat(partner) {
     localStorage.setItem('lastChatId', partner.uid);
     history.pushState({view: 'chat'}, '', `#chat`);
 
+    // Reset Info Button for User Profile (Future) or Hide it
+    const infoBtn = document.querySelector('.info-btn');
+    // For now, just a placeholder as user asked for Club Profile specifically
+    infoBtn.onclick = () => alert("User Profile: Coming Soon"); 
+
     document.getElementById('partner-name').textContent = partner.displayName;
     document.getElementById('partner-avatar').src = partner.photoURL;
     const status = calculateStatus(state.usersCache.get(partner.uid) || partner);
@@ -309,6 +355,10 @@ export async function openClub(club, id) {
 
     history.pushState({view: 'club'}, '', `#club`);
 
+    // ATTACH CLUB PROFILE LISTENER HERE
+    const infoBtn = document.querySelector('.info-btn');
+    infoBtn.onclick = () => viewClubProfile(club);
+
     document.getElementById('partner-name').textContent = club.name;
     document.getElementById('partner-avatar').src = "https://cdn-icons-png.flaticon.com/512/1256/1256650.png";
     const statusEl = document.getElementById('partner-status');
@@ -329,6 +379,113 @@ export async function openClub(club, id) {
     loadMessages(id, true);
     listenForTyping(id, true);
 }
+
+// --- NEW FUNCTION: VIEW CLUB PROFILE ---
+async function viewClubProfile(club) {
+    const modal = document.getElementById('modal-club-profile');
+    
+    // 1. Populate Header
+    document.getElementById('cp-name').textContent = club.name;
+    document.getElementById('cp-desc').textContent = club.description || 'No description available.';
+    document.getElementById('cp-icon').className = club.icon || 'fa-solid fa-users';
+    document.getElementById('cp-count').textContent = (club.members?.length || 0) + ' AGENTS';
+
+    // 2. Badges
+    const badgeContainer = document.getElementById('cp-badges');
+    badgeContainer.innerHTML = '';
+    
+    if (club.isOfficial) {
+        badgeContainer.innerHTML += `<span class="club-badge official"><i class="fa-solid fa-certificate"></i> Official</span>`;
+    }
+    if (club.isPrivate) {
+        badgeContainer.innerHTML += `<span class="club-badge private"><i class="fa-solid fa-lock"></i> Private</span>`;
+    }
+    if (club.isAnonymous) {
+        badgeContainer.innerHTML += `<span class="club-badge anon"><i class="fa-solid fa-mask"></i> Anonymous</span>`;
+    }
+
+    // 3. Populate Members List
+    const list = document.getElementById('cp-members-list');
+    list.innerHTML = '<div class="loader-spinner"></div>';
+    
+    modal.classList.remove('hidden'); // Show modal while loading
+
+    // Scenario A: Anonymous Club (Do NOT fetch details)
+    if (club.isAnonymous) {
+        let html = '';
+        (club.members || []).forEach((m, index) => {
+            const isMe = m === state.currentUser.uid;
+            html += `
+                <div class="member-row">
+                    <div style="width:35px;height:35px;border-radius:50%;background:#444;display:flex;align-items:center;justify-content:center;margin-right:12px;">
+                        <i class="fa-solid fa-user-secret" style="color:#b2bec3"></i>
+                    </div>
+                    <div class="mem-info">
+                        <span class="mem-name">Agent ${String(index + 1).padStart(3, '0')} ${isMe ? '(You)' : ''}</span>
+                        <span class="mem-status">Redacted Identity</span>
+                    </div>
+                </div>
+            `;
+        });
+        list.innerHTML = html;
+        return;
+    }
+
+    // Scenario B: Standard Club (Fetch User Details)
+    try {
+        const memberIds = club.members || [];
+        if (memberIds.length === 0) {
+            list.innerHTML = '<div style="opacity:0.5;text-align:center">No Members</div>';
+            return;
+        }
+
+        // Parallel Fetch for robustness (Assume manageable size for this app)
+        const promises = memberIds.map(uid => {
+            if (state.usersCache.has(uid)) return Promise.resolve(state.usersCache.get(uid));
+            return db.collection('users').doc(uid).get().then(doc => {
+                if(doc.exists) {
+                    const d = doc.data();
+                    d.uid = doc.id; // Ensure uid is attached
+                    state.usersCache.set(uid, d);
+                    return d;
+                }
+                return null;
+            });
+        });
+
+        const users = await Promise.all(promises);
+        
+        let html = '';
+        users.forEach(u => {
+            if (!u) return; // User might be deleted
+            const status = calculateStatus(u);
+            const isOwner = club.createdBy === u.uid;
+            
+            html += `
+                <div class="member-row" onclick="window.openChatFromProfile('${u.uid}')">
+                    <img src="${u.photoURL || 'https://via.placeholder.com/40'}" onerror="this.src='https://via.placeholder.com/40'">
+                    <div class="mem-info">
+                        <span class="mem-name">${escapeHtml(u.displayName)} ${isOwner ? '<span class="owner-tag">OWNER</span>' : ''}</span>
+                        <span class="mem-status" style="color:${status === 'Online' ? '#00b894' : '#b2bec3'}">${status}</span>
+                    </div>
+                </div>
+            `;
+        });
+        list.innerHTML = html;
+
+    } catch (e) {
+        console.error(e);
+        list.innerHTML = '<div style="color:var(--danger)">Error loading members</div>';
+    }
+}
+
+// Helper to bridge profile click to chat
+window.openChatFromProfile = (uid) => {
+    if (uid === state.currentUser.uid) return;
+    document.getElementById('modal-club-profile').classList.add('hidden');
+    const user = state.usersCache.get(uid);
+    if(user) openChat(user);
+};
 
 function prepareChatUI() {
     dom.emptyState.classList.add('hidden');

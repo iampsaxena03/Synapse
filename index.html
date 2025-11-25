@@ -188,9 +188,7 @@
     </div>
 
     <!-- CONTEXT MENU OVERLAY (POPUP FUNCTION) -->
-    <div class="context-menu-overlay hidden">
-        <!-- Injected via JS -->
-    </div>
+    <div class="context-menu-overlay hidden"></div>
 
     <!-- MODALS -->
 
@@ -249,6 +247,38 @@
             </div>
         </div>
     </div>
+    
+    <!-- CLUB PROFILE MODAL (NEW) -->
+    <div id="modal-club-profile" class="modal-overlay hidden">
+        <div class="modal-card glass-card slide-up" style="max-height: 80vh; display: flex; flex-direction: column;">
+            <button class="close-modal" onclick="document.getElementById('modal-club-profile').classList.add('hidden')"><i class="fa-solid fa-xmark"></i></button>
+            
+            <div class="modal-header" style="border:none; padding-bottom: 0;">
+                <div class="club-profile-header">
+                    <div class="club-icon-large" id="cp-icon-bg">
+                        <i id="cp-icon" class="fa-solid fa-users"></i>
+                    </div>
+                    <h2 id="cp-name">Club Name</h2>
+                    <div class="club-badges" id="cp-badges">
+                        <!-- Badges injected here -->
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-scroll-body">
+                <p id="cp-desc" class="club-desc-text">Description goes here...</p>
+                
+                <div class="section-divider">
+                    <span>MEMBERS</span>
+                    <span id="cp-count" class="count-badge">0</span>
+                </div>
+
+                <div id="cp-members-list" class="members-list-roster">
+                    <div class="loader-spinner"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 
     <!-- FORWARD MODAL -->
     <div id="forward-modal" class="modal-overlay hidden">
@@ -269,20 +299,24 @@
         </div>
     </div>
     
-    <!-- DELETE MODAL -->
-    <!-- Injected via JS -->
-
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script type="module" src="js/main.js"></script>
 
+    <!-- SERVICE WORKER RESET -->
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js')
-                .then(reg => console.log('SW Registered'))
-                .catch(err => console.log('SW Error:', err));
+            navigator.serviceWorker.register('sw.js?v=4')
+                .then(reg => {
+                    if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                });
+            
+            let refreshing = false;
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                if (!refreshing) { refreshing = true; window.location.reload(); }
+            });
         }
     </script>
 </body>

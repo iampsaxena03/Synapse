@@ -534,3 +534,92 @@ body {
         to { transform: translateY(0); }
     }
 }
+
+/* --- CLUB PROFILE STYLES --- */
+.club-profile-header {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    padding-bottom: 20px;
+}
+
+.club-icon-large {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #2d3436, #000000);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 40px;
+    color: var(--gold);
+    margin-bottom: 15px;
+    border: 3px solid var(--glass-border);
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+}
+
+#cp-name { font-size: 22px; font-weight: 700; color: white; margin-bottom: 8px; }
+
+.club-badges { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
+.club-badge {
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 12px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid var(--glass-border);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-secondary);
+}
+.club-badge.official { background: rgba(253, 203, 110, 0.1); color: var(--gold); border-color: rgba(253, 203, 110, 0.3); }
+.club-badge.private { background: rgba(255, 118, 117, 0.1); color: var(--danger); border-color: rgba(255, 118, 117, 0.3); }
+.club-badge.anon { background: rgba(108, 92, 231, 0.1); color: var(--accent-color); border-color: rgba(108, 92, 231, 0.3); }
+
+.section-divider {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 0 10px 0;
+    border-bottom: 1px solid var(--glass-border);
+    margin-bottom: 10px;
+    font-size: 11px;
+    letter-spacing: 1px;
+    color: var(--text-secondary);
+    font-weight: 700;
+}
+
+.count-badge { background: var(--accent-color); color: white; padding: 2px 8px; border-radius: 10px; font-size: 10px; }
+
+.club-desc-text {
+    background: rgba(0,0,0,0.2);
+    padding: 15px;
+    border-radius: 10px;
+    font-size: 14px;
+    color: #dfe6e9;
+    line-height: 1.5;
+    margin-bottom: 20px;
+    border: 1px solid var(--glass-border);
+}
+
+.members-list-roster {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.member-row {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border-radius: 10px;
+    background: rgba(255,255,255,0.03);
+    transition: 0.2s;
+}
+.member-row:hover { background: var(--glass-highlight); }
+.member-row img { width: 35px; height: 35px; border-radius: 50%; margin-right: 12px; object-fit: cover; }
+.member-row .mem-info { flex: 1; }
+.member-row .mem-name { font-size: 14px; font-weight: 500; display: block; }
+.member-row .mem-status { font-size: 11px; color: var(--text-secondary); }
+.owner-tag { font-size: 9px; background: var(--gold); color: black; padding: 2px 6px; border-radius: 4px; margin-left: 6px; font-weight: 700; vertical-align: middle; }
