@@ -1,4 +1,6 @@
-// --- CONFIGURATION ---
+// ——— SYNAPSE v2.0 — CONFIGURATION ———
+const SYNAPSE_VERSION = '2.0.0';
+
 const firebaseConfig = {
     apiKey: "AIzaSyDGEL8DUQxHXxSoM5RLv4MKi6KfmEqU1R0",
     authDomain: "private-chat-app-320d3.firebaseapp.com",
@@ -15,5 +17,6 @@ if (!firebase.apps.length) {
 export const auth = firebase.auth();
 export const db = firebase.firestore();
 export const FieldValue = firebase.firestore.FieldValue;
+export { SYNAPSE_VERSION };
 
 db.enablePersistence({ synchronizeTabs: true }).catch(err => console.log("Persistence:", err.code));

@@ -3,43 +3,46 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content">
-    <title>Synapse</title>
-    
+    <title>Synapse — Secure Messaging</title>
+    <meta name="description" content="Synapse — Premium encrypted messaging platform with clubs, reactions, and real-time chat.">
+    <meta name="theme-color" content="#07070d">
+
     <!-- PWA -->
     <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#130f40">
-    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/1041/1041916.png">
-    
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%237c3aed'/><text x='50' y='62' font-size='48' text-anchor='middle' fill='white' font-family='sans-serif' font-weight='bold'>S</text></svg>">
+
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
     <div class="background-mesh"></div>
 
-    <!-- LOADING SCREEN -->
+    <!-- ===== LOADING SCREEN ===== -->
     <div id="loading-screen" class="screen">
         <div class="loader-content">
-            <div class="logo-icon pulse-anim"><i class="fa-solid fa-layer-group"></i></div>
-            <h3>Entering...</h3>
+            <div class="loader-logo"><i class="fa-solid fa-bolt"></i></div>
+            <h3>Synapse</h3>
+            <div class="loader-bar"></div>
         </div>
     </div>
 
-    <!-- AUTH SCREEN -->
+    <!-- ===== AUTH SCREEN ===== -->
     <div id="auth-screen" class="screen hidden">
         <div class="glass-card auth-card slide-up">
             <div class="glow-effect"></div>
             <div class="logo-area">
-                <div class="logo-icon"><i class="fa-solid fa-layer-group"></i></div>
+                <div class="logo-icon"><i class="fa-solid fa-bolt"></i></div>
                 <h1>Synapse</h1>
-                <p>The Experience</p>
+                <p>Encrypted Messaging</p>
             </div>
             <div class="auth-form">
-                <div class="input-group">
+                <div class="input-group" id="login-input-group">
                     <i class="fa-regular fa-user"></i>
                     <input type="text" id="login-input" placeholder="Username or Email" autocomplete="username">
                 </div>
@@ -54,7 +57,7 @@
                     </div>
                     <div class="input-group">
                         <i class="fa-solid fa-at"></i>
-                        <input type="text" id="custom-id" placeholder="Choose a User ID" autocomplete="off">
+                        <input type="text" id="custom-id" placeholder="Choose a unique User ID" autocomplete="off">
                     </div>
                     <div class="input-group">
                         <i class="fa-regular fa-envelope"></i>
@@ -62,21 +65,20 @@
                     </div>
                 </div>
                 <p id="auth-error" class="error-msg"></p>
-                <button id="auth-btn" class="btn-primary">Login</button>
+                <button id="auth-btn" class="btn-primary">Sign In</button>
                 <div class="divider"><span>OR</span></div>
                 <button id="toggle-mode" class="btn-text">Create New Account</button>
             </div>
         </div>
     </div>
 
-    <!-- MAIN APP SCREEN -->
+    <!-- ===== MAIN APP ===== -->
     <div id="app-screen" class="screen hidden">
         <div class="app-layout fade-in">
-            
+
             <!-- SIDEBAR -->
-            <aside class="sidebar glass-panel">
+            <aside class="sidebar">
                 <div class="sidebar-header-group">
-                    <!-- Profile Header -->
                     <div class="sidebar-header">
                         <div class="my-profile" id="my-profile-trigger">
                             <div class="avatar-wrapper">
@@ -88,84 +90,76 @@
                                 <small id="my-custom-id">@...</small>
                             </div>
                         </div>
-                        <button id="logout-btn" class="icon-btn logout" title="Logout">
-                            <i class="fa-solid fa-power-off"></i>
-                        </button>
+                        <div class="header-btns">
+                            <button id="settings-btn" class="icon-btn" title="Settings"><i class="fa-solid fa-gear"></i></button>
+                            <button id="logout-btn" class="icon-btn logout" title="Logout"><i class="fa-solid fa-power-off"></i></button>
+                        </div>
                     </div>
 
-                    <!-- Nav Tabs -->
                     <div class="nav-tabs">
                         <button class="nav-tab active" id="tab-chats">Direct</button>
                         <button class="nav-tab" id="tab-clubs">Clubs</button>
                     </div>
                 </div>
-                
-                <!-- Search (Shared) -->
+
                 <div class="search-bar">
                     <i class="fa-solid fa-magnifying-glass"></i>
-                    <input type="text" id="user-search" placeholder="Search...">
+                    <input type="text" id="user-search" placeholder="Search users...">
                 </div>
 
                 <div class="list-container">
-                    <!-- Search Results -->
                     <div id="search-results" class="users-list hidden">
                         <div class="list-title">Search Results</div>
                         <div id="search-list-content"></div>
                     </div>
-
-                    <!-- Private Chats List -->
                     <div id="my-chats-list" class="users-list">
-                        <div class="list-title">Recent Chats</div>
+                        <div class="list-title">Messages</div>
                         <div id="my-chats-content">
                             <div class="loader-spinner"></div>
                         </div>
                     </div>
-
-                    <!-- Clubs List -->
                     <div id="clubs-list" class="users-list hidden">
-                        <div class="list-title">Available Clubs</div>
-                        <div id="clubs-content">
-                            <!-- Clubs injected here -->
-                        </div>
+                        <div class="list-title">Clubs</div>
+                        <div id="clubs-content"></div>
                     </div>
                 </div>
             </aside>
 
             <!-- CHAT AREA -->
-            <main class="chat-area glass-panel">
+            <main class="chat-area">
                 <div id="empty-state" class="empty-view">
                     <div class="empty-art">
-                        <i class="fa-brands fa-rocketchat"></i>
+                        <i class="fa-solid fa-comments"></i>
                         <div class="art-glow"></div>
                     </div>
                     <h2>Welcome to Synapse</h2>
-                    <p>Select a contact or join a club.</p>
+                    <p>Select a conversation or join a club to start messaging.</p>
                 </div>
 
                 <div id="chat-view" class="chat-view hidden">
                     <header class="chat-header" id="partner-header-trigger">
-                        <button id="back-btn" class="icon-btn mobile-only"><i class="fa-solid fa-chevron-left"></i></button>
+                        <button id="back-btn" class="icon-btn mobile-back mobile-only"><i class="fa-solid fa-chevron-left"></i></button>
                         <div class="chat-partner">
                             <img id="partner-avatar" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="">
                             <div class="partner-meta">
                                 <h3 id="partner-name">User</h3>
                                 <span id="partner-status">Offline</span>
                             </div>
-                            
-                            <!-- Header Actions -->
-                            <div class="header-actions">
-                                <button class="icon-btn" onclick="event.stopPropagation(); clearChat()" title="Clear Chat History" style="margin-left: 15px;">
-                                    <i class="fa-solid fa-trash-can"></i>
-                                </button>
-                                <button class="icon-btn info-btn"><i class="fa-solid fa-circle-info"></i></button>
-                            </div>
+                        </div>
+                        <div class="header-actions">
+                            <button class="icon-btn" onclick="event.stopPropagation(); clearChat()" title="Clear Chat"><i class="fa-solid fa-broom"></i></button>
+                            <button class="icon-btn info-btn" title="Info"><i class="fa-solid fa-circle-info"></i></button>
                         </div>
                     </header>
 
                     <div id="messages-feed" class="messages-feed"></div>
 
+                    <!-- Scroll to Bottom -->
+                    <button id="scroll-bottom-btn" class="scroll-bottom-btn hidden">
+                        <i class="fa-solid fa-chevron-down"></i>
+                    </button>
+
                     <footer class="input-area">
-                        <!-- REPLY / EDIT PREVIEW BAR -->
                         <div id="input-context-bar" class="context-bar hidden">
                             <div class="context-content">
                                 <div class="context-icon"><i class="fa-solid fa-reply"></i></div>
@@ -177,8 +171,14 @@
                             <button id="close-context-btn" class="icon-btn-small"><i class="fa-solid fa-xmark"></i></button>
                         </div>
 
+                        <!-- Emoji Picker -->
+                        <div id="emoji-picker" class="emoji-picker hidden"></div>
+
                         <div class="input-wrapper">
-                            <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off" autocorrect="off" spellcheck="false" name="chat_message_v1">
+                            <div class="input-left-actions">
+                                <button id="emoji-btn" class="emoji-trigger" title="Emoji"><i class="fa-regular fa-face-smile"></i></button>
+                            </div>
+                            <input type="text" id="msg-input" placeholder="Type a message..." autocomplete="off" autocorrect="off" spellcheck="false" name="chat_message_v2">
                             <button id="send-btn" class="send-btn hidden"><i class="fa-solid fa-paper-plane"></i></button>
                         </div>
                     </footer>
@@ -187,12 +187,12 @@
         </div>
     </div>
 
-    <!-- CONTEXT MENU OVERLAY (POPUP FUNCTION) -->
+    <!-- CONTEXT MENU OVERLAY -->
     <div class="context-menu-overlay hidden"></div>
 
-    <!-- MODALS -->
+    <!-- ===== MODALS ===== -->
 
-    <!-- PROFILE EDIT -->
+    <!-- Edit Profile -->
     <div id="edit-profile-modal" class="modal-overlay hidden">
         <div class="modal-card glass-card slide-up">
             <button class="close-modal" id="close-edit-profile"><i class="fa-solid fa-xmark"></i></button>
@@ -202,7 +202,7 @@
             </div>
             <div class="modal-body">
                 <div class="avatar-large">
-                    <img id="edit-avatar-preview" src="">
+                    <img id="edit-avatar-preview" src="" alt="Avatar">
                     <div class="edit-badge"><i class="fa-solid fa-pen"></i></div>
                 </div>
                 <div class="input-group">
@@ -222,13 +222,13 @@
         </div>
     </div>
 
-    <!-- VIEW PROFILE -->
+    <!-- View Profile -->
     <div id="view-profile-modal" class="modal-overlay hidden">
         <div class="modal-card glass-card slide-up">
             <button class="close-modal" id="close-view-profile"><i class="fa-solid fa-xmark"></i></button>
             <div class="profile-view-header">
                 <div class="profile-cover"></div>
-                <img id="view-avatar" src="" class="profile-pic-large">
+                <img id="view-avatar" src="" class="profile-pic-large" alt="Profile">
             </div>
             <div class="profile-view-body">
                 <h2 id="view-name">User Name</h2>
@@ -247,32 +247,26 @@
             </div>
         </div>
     </div>
-    
-    <!-- CLUB PROFILE MODAL (NEW) -->
+
+    <!-- Club Profile -->
     <div id="modal-club-profile" class="modal-overlay hidden">
         <div class="modal-card glass-card slide-up" style="max-height: 80vh; display: flex; flex-direction: column;">
             <button class="close-modal" onclick="document.getElementById('modal-club-profile').classList.add('hidden')"><i class="fa-solid fa-xmark"></i></button>
-            
             <div class="modal-header" style="border:none; padding-bottom: 0;">
                 <div class="club-profile-header">
                     <div class="club-icon-large" id="cp-icon-bg">
                         <i id="cp-icon" class="fa-solid fa-users"></i>
                     </div>
                     <h2 id="cp-name">Club Name</h2>
-                    <div class="club-badges" id="cp-badges">
-                        <!-- Badges injected here -->
-                    </div>
+                    <div class="club-badges" id="cp-badges"></div>
                 </div>
             </div>
-
             <div class="modal-scroll-body">
                 <p id="cp-desc" class="club-desc-text">Description goes here...</p>
-                
                 <div class="section-divider">
                     <span>MEMBERS</span>
                     <span id="cp-count" class="count-badge">0</span>
                 </div>
-
                 <div id="cp-members-list" class="members-list-roster">
                     <div class="loader-spinner"></div>
                 </div>
@@ -280,39 +274,80 @@
         </div>
     </div>
 
-    <!-- FORWARD MODAL -->
+    <!-- Forward Modal -->
     <div id="forward-modal" class="modal-overlay hidden">
         <div class="modal-card glass-card slide-up forward-card">
             <button class="close-modal" id="close-forward-modal"><i class="fa-solid fa-xmark"></i></button>
             <div class="modal-header">
-                <h2>Forward to...</h2>
+                <h2>Forward Message</h2>
             </div>
-            
-            <div class="nav-tabs" style="margin-bottom: 15px;">
+            <div class="nav-tabs" style="margin-bottom: 12px;">
                 <button class="nav-tab active" id="fwd-tab-chats">Chats</button>
                 <button class="nav-tab" id="fwd-tab-clubs">Clubs</button>
             </div>
+            <div id="forward-list" class="forward-list-container"></div>
+        </div>
+    </div>
 
-            <div id="forward-list" class="forward-list-container">
-                <!-- Injected via JS -->
+    <!-- ===== SETTINGS DRAWER ===== -->
+    <div id="settings-overlay" class="settings-overlay hidden"></div>
+    <div id="settings-drawer" class="settings-drawer">
+        <div class="settings-header">
+            <h2><i class="fa-solid fa-gear" style="margin-right: 8px; color: var(--accent);"></i> Settings</h2>
+            <button class="icon-btn" id="close-settings"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="settings-body">
+            <div class="settings-section">
+                <div class="settings-section-title">Notifications</div>
+                <div class="settings-item">
+                    <div class="settings-item-info">
+                        <span>Sound Effects</span>
+                        <small>Play sounds on send & receive</small>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="setting-sound" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+                <div class="settings-item">
+                    <div class="settings-item-info">
+                        <span>Vibration</span>
+                        <small>Haptic feedback on actions</small>
+                    </div>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="setting-vibrate" checked>
+                        <span class="toggle-slider"></span>
+                    </label>
+                </div>
+            </div>
+            <div class="settings-section">
+                <div class="settings-section-title">About</div>
+                <div class="settings-item">
+                    <div class="settings-item-info">
+                        <span>Synapse</span>
+                        <small>Version 2.0 — Built with 💜</small>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
-    
+
+    <!-- ===== TOAST CONTAINER ===== -->
+    <div id="toast-container" class="toast-container"></div>
+
     <!-- Firebase -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
     <script type="module" src="js/main.js"></script>
 
-    <!-- SERVICE WORKER RESET -->
+    <!-- Service Worker -->
     <script>
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('sw.js?v=4')
+            navigator.serviceWorker.register('sw.js?v=5')
                 .then(reg => {
                     if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
                 });
-            
             let refreshing = false;
             navigator.serviceWorker.addEventListener('controllerchange', () => {
                 if (!refreshing) { refreshing = true; window.location.reload(); }

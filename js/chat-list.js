@@ -1,9 +1,11 @@
+// ——— SYNAPSE v2.0 — CHAT LIST & CLUBS ———
 import { db, FieldValue } from './config.js';
 import { state, ListenerMgr } from './state.js';
 import { dom } from './dom.js';
-import { escapeHtml, getSafeDate } from './utils.js';
+import { escapeHtml, getSafeDate, getRelativeTime, generateAvatar } from './utils.js';
 import { loadMessages, listenForTyping, markMessagesAsRead, resetUnreadCount, updateClubReadStatus } from './messages.js';
 
+// --- Status Calculation ---
 export function calculateStatus(user) {
     if (!user || !user.isOnline || !user.lastSeen) return 'Offline';
     const lastSeen = getSafeDate(user.lastSeen);
@@ -21,7 +23,7 @@ export function checkAllUserStatuses() {
             const statusSpan = row.querySelector('.status-text');
             if (statusSpan) {
                 statusSpan.textContent = status;
-                statusSpan.style.color = status === 'Online' ? '#00b894' : '#b2bec3';
+                statusSpan.style.color = status === 'Online' ? 'var(--success)' : 'var(--text-muted)';
             }
         }
     });
@@ -32,26 +34,27 @@ export function checkAllUserStatuses() {
             const liveUser = state.usersCache.get(state.currentChatUser.uid) || state.currentChatUser;
             const status = calculateStatus(liveUser);
             el.textContent = status;
-            el.style.color = status === 'Online' ? '#00b894' : '#b2bec3';
+            el.style.color = status === 'Online' ? 'var(--success)' : 'var(--text-muted)';
         }
     }
 }
 
+// --- Load My Chats ---
 export function loadMyChats() {
-    if (state.listeners.mainChats) state.listeners.mainChats(); 
-    
+    if (state.listeners.mainChats) state.listeners.mainChats();
+
     const content = dom.listChatsContent;
-    
+
     state.listeners.mainChats = db.collection('users').doc(state.currentUser.uid).collection('activeChats')
-        .orderBy('timestamp', 'desc') 
+        .orderBy('timestamp', 'desc')
         .onSnapshot(snap => {
             if (snap.empty) {
-                content.innerHTML = '<div style="padding:20px;text-align:center;font-size:12px;opacity:0.5">No active chats</div>';
+                content.innerHTML = '<div style="padding:24px;text-align:center;font-size:13px;color:var(--text-muted)">No conversations yet</div>';
                 ListenerMgr.clearAllRowListeners();
                 return;
             }
 
-            if (content.textContent.includes('No active chats')) content.innerHTML = '';
+            if (content.textContent.includes('No conversations')) content.innerHTML = '';
 
             snap.docChanges().forEach(change => {
                 if (change.type === 'removed') {
@@ -65,9 +68,9 @@ export function loadMyChats() {
             snap.docs.forEach(doc => {
                 const partnerId = doc.id;
                 const data = doc.data();
-                
+
                 let div = document.getElementById(`user-row-${partnerId}`);
-                
+
                 if (!div) {
                     div = document.createElement('div');
                     div.id = `user-row-${partnerId}`;
@@ -77,8 +80,24 @@ export function loadMyChats() {
                 }
 
                 div.setAttribute('data-unread', data.unreadCount || 0);
+                div.setAttribute('data-ts', data.timestamp ? getSafeDate(data.timestamp).getTime() : 0);
+                div.setAttribute('data-last-msg', data.lastMessage || '');
                 updateBadgeOnly(div, data.unreadCount || 0, partnerId);
-                content.appendChild(div);
+
+                // Insert in sorted position
+                const existingItems = Array.from(content.querySelectorAll('.user-item'));
+                const myTs = parseInt(div.getAttribute('data-ts') || 0);
+                let inserted = false;
+                for (const item of existingItems) {
+                    if (item === div) continue;
+                    const itemTs = parseInt(item.getAttribute('data-ts') || 0);
+                    if (myTs > itemTs) {
+                        content.insertBefore(div, item);
+                        inserted = true;
+                        break;
+                    }
+                }
+                if (!inserted) content.appendChild(div);
             });
         });
 }
@@ -99,12 +118,12 @@ function setupRowListeners(div, partnerId) {
         .onSnapshot(snap => {
             const isTyping = snap.exists && snap.data().timestamp && (new Date() - getSafeDate(snap.data().timestamp)) < 10000;
             const statusSpan = div.querySelector('.status-text');
-            
+
             if (isTyping) {
                 div.classList.add('is-typing');
                 if (statusSpan) {
                     statusSpan.textContent = 'typing...';
-                    statusSpan.style.color = '#6c5ce7';
+                    statusSpan.style.color = 'var(--accent)';
                     statusSpan.classList.add('typing-active');
                 }
             } else {
@@ -115,7 +134,7 @@ function setupRowListeners(div, partnerId) {
                     if (user) {
                         const status = calculateStatus(user);
                         statusSpan.textContent = status;
-                        statusSpan.style.color = status === 'Online' ? '#00b894' : '#b2bec3';
+                        statusSpan.style.color = status === 'Online' ? 'var(--success)' : 'var(--text-muted)';
                     }
                 }
             }
@@ -126,10 +145,10 @@ function setupRowListeners(div, partnerId) {
 function fillUserItem(div, user, unreadCount) {
     div.setAttribute('data-uid', user.uid);
     div.onclick = () => openChat(user);
-    
+
     if (state.currentChatUser?.uid === user.uid) {
         div.classList.add('active');
-        unreadCount = 0; 
+        unreadCount = 0;
     } else {
         div.classList.remove('active');
     }
@@ -137,22 +156,27 @@ function fillUserItem(div, user, unreadCount) {
     if (div.classList.contains('is-typing')) return;
 
     const status = calculateStatus(user);
-    const color = status === 'Online' ? '#00b894' : '#b2bec3';
+    const statusColor = status === 'Online' ? 'var(--success)' : 'var(--text-muted)';
+    const lastMsg = div.getAttribute('data-last-msg') || '';
+    const ts = div.getAttribute('data-ts');
+    const timeStr = ts && parseInt(ts) > 0 ? getRelativeTime(new Date(parseInt(ts))) : '';
+    const avatarSrc = user.photoURL || generateAvatar(user.displayName || 'User');
 
     let badgeHtml = '';
     if (unreadCount > 0) {
-        badgeHtml = `<div class="unread-badge" style="display:flex">${unreadCount > 9 ? '9+' : unreadCount}</div>`;
+        badgeHtml = `<div class="unread-badge">${unreadCount > 9 ? '9+' : unreadCount}</div>`;
     }
 
     div.innerHTML = `
-        <img src="${user.photoURL}" alt="User" onerror="this.src='https://via.placeholder.com/50'">
+        <img src="${avatarSrc}" alt="" onerror="this.src='${generateAvatar(user.displayName || 'User')}'">
         <div class="user-info">
             <h4>${escapeHtml(user.displayName)}</h4>
-            <span class="status-text" style="font-size:11px; color:${color}">
-                ${status}
-            </span>
+            <span class="last-msg-preview">${lastMsg ? escapeHtml(lastMsg) : `<span class="status-text" style="color:${statusColor}">${status}</span>`}</span>
         </div>
-        ${badgeHtml}
+        <div class="chat-meta-right">
+            ${timeStr ? `<span class="chat-time">${timeStr}</span>` : ''}
+            ${badgeHtml}
+        </div>
     `;
 }
 
@@ -161,60 +185,55 @@ function updateBadgeOnly(div, count, partnerId) {
     let badge = div.querySelector('.unread-badge');
     if (count > 0) {
         if (!badge) {
-            badge = document.createElement('div');
-            badge.className = 'unread-badge';
-            div.appendChild(badge);
+            const meta = div.querySelector('.chat-meta-right');
+            if (meta) {
+                badge = document.createElement('div');
+                badge.className = 'unread-badge';
+                meta.appendChild(badge);
+            }
         }
-        badge.style.display = 'flex';
-        badge.textContent = count > 9 ? '9+' : count;
+        if (badge) {
+            badge.style.display = 'flex';
+            badge.textContent = count > 9 ? '9+' : count;
+        }
     } else {
         if (badge) badge.style.display = 'none';
     }
 }
 
-// --- NEW FLUID LOGIC: TWO-STREAM LOADER ---
+// --- Load Clubs (Two-Stream) ---
 export function loadClubs() {
-    // 1. Clean up OLD listeners (Support both array and single function)
     if (state.listeners.clubs) {
-        if (Array.isArray(state.listeners.clubs)) {
-            state.listeners.clubs.forEach(u => u());
-        } else if (typeof state.listeners.clubs === 'function') {
-            state.listeners.clubs();
-        }
+        if (Array.isArray(state.listeners.clubs)) state.listeners.clubs.forEach(u => u());
+        else if (typeof state.listeners.clubs === 'function') state.listeners.clubs();
     }
 
     const content = dom.clubsContent;
-    if (content.children.length === 0) content.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5">Loading clubs...</div>';
+    if (content.children.length === 0) content.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">Loading clubs...</div>';
 
-    // 2. Local State for Merging
     const publicClubs = new Map();
     const myClubs = new Map();
 
-    // 3. Render Logic (Merges both streams)
     const render = () => {
-        // Merge Map: "My Clubs" overwrite "Public" if duplicate (ensures I see my membership)
         const merged = new Map([...publicClubs, ...myClubs]);
         const sortedDocs = Array.from(merged.values()).sort((a, b) => {
-             const timeA = a.lastMessageAt ? a.lastMessageAt.toMillis() : (a.createdAt ? a.createdAt.toMillis() : 0);
-             const timeB = b.lastMessageAt ? b.lastMessageAt.toMillis() : (b.createdAt ? b.createdAt.toMillis() : 0);
-             return timeB - timeA;
+            const timeA = a.lastMessageAt ? a.lastMessageAt.toMillis() : (a.createdAt ? a.createdAt.toMillis() : 0);
+            const timeB = b.lastMessageAt ? b.lastMessageAt.toMillis() : (b.createdAt ? b.createdAt.toMillis() : 0);
+            return timeB - timeA;
         });
 
-        // Clear Loading Text
         if (content.innerHTML.includes('Loading')) content.innerHTML = '';
         if (sortedDocs.length === 0) {
-            content.innerHTML = '<div style="padding:20px;text-align:center;opacity:0.5">No clubs found</div>';
+            content.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-muted);font-size:13px">No clubs available</div>';
             return;
         }
 
         const visibleIds = new Set();
-        
         sortedDocs.forEach(club => {
             visibleIds.add(club.id);
             let el = document.getElementById(`club-${club.id}`);
-
             if (el) {
-                content.appendChild(el); // Move to sorted position
+                content.appendChild(el);
                 updateClubContent(el, club);
             } else {
                 el = createClubElement(club, club.id);
@@ -223,14 +242,12 @@ export function loadClubs() {
             attachClubReadListener(el, club.id, club.lastMessageAt);
         });
 
-        // Remove Stale Elements (Clubs that became private or deleted)
         Array.from(content.children).forEach(el => {
-            const id = el.id.replace('club-', '');
-            if (!visibleIds.has(id)) el.remove();
+            const id = el.id?.replace('club-', '');
+            if (id && !visibleIds.has(id)) el.remove();
         });
     };
 
-    // 4. STREAM A: PUBLIC CLUBS (Anyone can see)
     const unsubPublic = db.collection('clubs')
         .where('isPrivate', '==', false)
         .onSnapshot(snap => {
@@ -241,7 +258,6 @@ export function loadClubs() {
             render();
         });
 
-    // 5. STREAM B: MY CLUBS (Private clubs I belong to)
     const unsubPrivate = db.collection('clubs')
         .where('members', 'array-contains', state.currentUser.uid)
         .onSnapshot(snap => {
@@ -252,14 +268,13 @@ export function loadClubs() {
             render();
         });
 
-    // Store both unsubs
     state.listeners.clubs = [unsubPublic, unsubPrivate];
 }
 
 function updateClubContent(div, club) {
     const nameEl = div.querySelector('h4');
     const descEl = div.querySelector('.user-info span');
-    if (nameEl) nameEl.innerHTML = `${escapeHtml(club.name)} ${club.isAnonymous ? '<i class="fa-solid fa-mask" style="color:var(--gold);font-size:12px;margin-left:5px;"></i>' : ''}`;
+    if (nameEl) nameEl.innerHTML = `${escapeHtml(club.name)} ${club.isAnonymous ? '<i class="fa-solid fa-mask" style="color:var(--gold);font-size:11px;margin-left:4px;"></i>' : ''}`;
     if (descEl) descEl.textContent = escapeHtml(club.description || 'Welcome');
 }
 
@@ -268,13 +283,13 @@ function createClubElement(club, id) {
     div.id = `club-${id}`;
     div.className = `club-item ${state.currentClubData?.id === id ? 'active' : ''}`;
     div.onclick = () => openClub(club, id);
-    
+
     const icon = club.icon || 'fa-solid fa-users';
     div.innerHTML = `
         <i class="${icon} club-icon"></i>
         <div class="user-info">
-            <h4>${escapeHtml(club.name)} ${club.isAnonymous ? '<i class="fa-solid fa-mask" style="color:var(--gold);font-size:12px;margin-left:5px;"></i>' : ''}</h4>
-            <span style="font-size:11px; color:#b2bec3">${escapeHtml(club.description || 'Welcome')}</span>
+            <h4>${escapeHtml(club.name)} ${club.isAnonymous ? '<i class="fa-solid fa-mask" style="color:var(--gold);font-size:11px;margin-left:4px;"></i>' : ''}</h4>
+            <span style="font-size:12px;color:var(--text-muted)">${escapeHtml(club.description || 'Welcome')}</span>
         </div>
         <div class="unread-badge" style="display:none;">!</div>
     `;
@@ -283,9 +298,8 @@ function createClubElement(club, id) {
 
 function attachClubReadListener(div, clubId, clubLastActivity) {
     const lastTs = clubLastActivity ? clubLastActivity.toMillis() : 0;
-    if (div._listeningForTs === lastTs) return; 
-
-    if (div._unreadUnsub) div._unreadUnsub(); 
+    if (div._listeningForTs === lastTs) return;
+    if (div._unreadUnsub) div._unreadUnsub();
 
     div._listeningForTs = lastTs;
     div._unreadUnsub = db.collection('users').doc(state.currentUser.uid)
@@ -296,39 +310,39 @@ function attachClubReadListener(div, clubId, clubLastActivity) {
             let showDot = true;
             if (myLastRead && lastTs <= myLastRead.toMillis()) showDot = false;
             if (state.currentClubData?.id === clubId) showDot = false;
-            
             const badge = div.querySelector('.unread-badge');
-            if(badge) badge.style.display = showDot ? 'flex' : 'none';
+            if (badge) badge.style.display = showDot ? 'flex' : 'none';
         });
 }
 
-// --- OPENING FUNCTIONS ---
+// --- Open Chat ---
 export async function openChat(partner) {
     state.currentClubData = null;
     state.currentChatUser = partner;
     state.currentChatParams.hiddenBefore = null;
-    window.cancelInputMode(); 
-    
+    window.cancelInputMode();
+
     prepareChatUI();
     dom.listChats.classList.remove('hidden');
     dom.listClubs.classList.add('hidden');
-    
+
     localStorage.setItem('lastChatId', partner.uid);
-    history.pushState({view: 'chat'}, '', `#chat`);
+    history.pushState({ view: 'chat' }, '', `#chat`);
 
-    // Reset Info Button for User Profile (Future) or Hide it
+    // Info button -> View profile
     const infoBtn = document.querySelector('.info-btn');
-    // For now, just a placeholder as user asked for Club Profile specifically
-    infoBtn.onclick = () => alert("User Profile: Coming Soon"); 
+    infoBtn.onclick = () => viewUserProfile(partner.uid);
 
+    const avatarSrc = partner.photoURL || generateAvatar(partner.displayName || 'User');
     document.getElementById('partner-name').textContent = partner.displayName;
-    document.getElementById('partner-avatar').src = partner.photoURL;
+    document.getElementById('partner-avatar').src = avatarSrc;
+
     const status = calculateStatus(state.usersCache.get(partner.uid) || partner);
     const statusEl = document.getElementById('partner-status');
     statusEl.textContent = status;
-    statusEl.style.color = status === 'Online' ? '#00b894' : '#b2bec3';
+    statusEl.style.color = status === 'Online' ? 'var(--success)' : 'var(--text-muted)';
     statusEl.classList.remove('typing-active');
-    dom.msgInput.placeholder = "Type a message...";
+    dom.msgInput.placeholder = 'Type a message...';
 
     document.querySelectorAll('.user-item').forEach(el => el.classList.remove('active'));
     const row = document.getElementById(`user-row-${partner.uid}`);
@@ -343,36 +357,69 @@ export async function openChat(partner) {
     listenForTyping(partner.uid, false);
 }
 
+// --- View User Profile ---
+async function viewUserProfile(uid) {
+    const modal = document.getElementById('view-profile-modal');
+    try {
+        let userData = state.usersCache.get(uid);
+        if (!userData) {
+            const doc = await db.collection('users').doc(uid).get();
+            if (doc.exists) {
+                userData = doc.data();
+                state.usersCache.set(uid, userData);
+            }
+        }
+        if (!userData) return;
+
+        document.getElementById('view-avatar').src = userData.photoURL || generateAvatar(userData.displayName);
+        document.getElementById('view-name').textContent = userData.displayName || 'User';
+        document.getElementById('view-id').textContent = '@' + (userData.customId || 'unknown');
+        document.getElementById('view-bio').textContent = userData.bio || 'No bio available.';
+        document.getElementById('view-location').textContent = userData.location || 'Unknown Location';
+
+        const status = calculateStatus(userData);
+        const pill = document.getElementById('view-status-pill');
+        pill.textContent = status;
+        pill.style.background = status === 'Online' ? 'rgba(16,185,129,0.1)' : 'rgba(100,116,139,0.1)';
+        pill.style.color = status === 'Online' ? 'var(--success)' : 'var(--text-muted)';
+        pill.style.borderColor = status === 'Online' ? 'rgba(16,185,129,0.2)' : 'rgba(100,116,139,0.2)';
+
+        document.getElementById('close-view-profile').onclick = () => modal.classList.add('hidden');
+        modal.classList.remove('hidden');
+    } catch (e) { console.error(e); }
+}
+
+// --- Open Club ---
 export async function openClub(club, id) {
     state.currentChatUser = null;
     state.currentClubData = { ...club, id };
     state.currentChatParams.hiddenBefore = null;
     window.cancelInputMode();
-    
+
     prepareChatUI();
     dom.listClubs.classList.remove('hidden');
     dom.listChats.classList.add('hidden');
 
-    history.pushState({view: 'club'}, '', `#club`);
+    history.pushState({ view: 'club' }, '', `#club`);
 
-    // ATTACH CLUB PROFILE LISTENER HERE
     const infoBtn = document.querySelector('.info-btn');
     infoBtn.onclick = () => viewClubProfile(club);
 
     document.getElementById('partner-name').textContent = club.name;
-    document.getElementById('partner-avatar').src = "https://cdn-icons-png.flaticon.com/512/1256/1256650.png";
+    document.getElementById('partner-avatar').src = 'https://cdn-icons-png.flaticon.com/512/1256/1256650.png';
+
     const statusEl = document.getElementById('partner-status');
     statusEl.textContent = club.isAnonymous ? 'Anonymous Den' : 'Public Room';
-    statusEl.style.color = club.isAnonymous ? '#fdcb6e' : '#b2bec3';
+    statusEl.style.color = club.isAnonymous ? 'var(--gold)' : 'var(--text-muted)';
     statusEl.classList.remove('typing-active');
-    dom.msgInput.placeholder = club.isAnonymous ? "Message anonymously..." : "Type a message...";
+    dom.msgInput.placeholder = club.isAnonymous ? 'Message anonymously...' : 'Type a message...';
 
     document.querySelectorAll('.club-item').forEach(el => el.classList.remove('active'));
     const row = document.getElementById(`club-${id}`);
     if (row) {
         row.classList.add('active');
         const badge = row.querySelector('.unread-badge');
-        if(badge) badge.style.display = 'none';
+        if (badge) badge.style.display = 'none';
     }
 
     updateClubReadStatus(id);
@@ -380,72 +427,57 @@ export async function openClub(club, id) {
     listenForTyping(id, true);
 }
 
-// --- NEW FUNCTION: VIEW CLUB PROFILE ---
+// --- Club Profile View ---
 async function viewClubProfile(club) {
     const modal = document.getElementById('modal-club-profile');
-    
-    // 1. Populate Header
+
     document.getElementById('cp-name').textContent = club.name;
     document.getElementById('cp-desc').textContent = club.description || 'No description available.';
     document.getElementById('cp-icon').className = club.icon || 'fa-solid fa-users';
-    document.getElementById('cp-count').textContent = (club.members?.length || 0) + ' AGENTS';
+    document.getElementById('cp-count').textContent = (club.members?.length || 0) + ' MEMBERS';
 
-    // 2. Badges
     const badgeContainer = document.getElementById('cp-badges');
     badgeContainer.innerHTML = '';
-    
-    if (club.isOfficial) {
-        badgeContainer.innerHTML += `<span class="club-badge official"><i class="fa-solid fa-certificate"></i> Official</span>`;
-    }
-    if (club.isPrivate) {
-        badgeContainer.innerHTML += `<span class="club-badge private"><i class="fa-solid fa-lock"></i> Private</span>`;
-    }
-    if (club.isAnonymous) {
-        badgeContainer.innerHTML += `<span class="club-badge anon"><i class="fa-solid fa-mask"></i> Anonymous</span>`;
-    }
+    if (club.isOfficial) badgeContainer.innerHTML += `<span class="club-badge official"><i class="fa-solid fa-certificate"></i> Official</span>`;
+    if (club.isPrivate) badgeContainer.innerHTML += `<span class="club-badge private"><i class="fa-solid fa-lock"></i> Private</span>`;
+    if (club.isAnonymous) badgeContainer.innerHTML += `<span class="club-badge anon"><i class="fa-solid fa-mask"></i> Anonymous</span>`;
 
-    // 3. Populate Members List
     const list = document.getElementById('cp-members-list');
     list.innerHTML = '<div class="loader-spinner"></div>';
-    
-    modal.classList.remove('hidden'); // Show modal while loading
+    modal.classList.remove('hidden');
 
-    // Scenario A: Anonymous Club (Do NOT fetch details)
     if (club.isAnonymous) {
         let html = '';
         (club.members || []).forEach((m, index) => {
             const isMe = m === state.currentUser.uid;
             html += `
                 <div class="member-row">
-                    <div style="width:35px;height:35px;border-radius:50%;background:#444;display:flex;align-items:center;justify-content:center;margin-right:12px;">
-                        <i class="fa-solid fa-user-secret" style="color:#b2bec3"></i>
+                    <div style="width:34px;height:34px;border-radius:50%;background:var(--bg-elevated);display:flex;align-items:center;justify-content:center;margin-right:12px;">
+                        <i class="fa-solid fa-user-secret" style="color:var(--text-muted)"></i>
                     </div>
                     <div class="mem-info">
                         <span class="mem-name">Agent ${String(index + 1).padStart(3, '0')} ${isMe ? '(You)' : ''}</span>
                         <span class="mem-status">Redacted Identity</span>
                     </div>
-                </div>
-            `;
+                </div>`;
         });
         list.innerHTML = html;
         return;
     }
 
-    // Scenario B: Standard Club (Fetch User Details)
     try {
         const memberIds = club.members || [];
         if (memberIds.length === 0) {
-            list.innerHTML = '<div style="opacity:0.5;text-align:center">No Members</div>';
+            list.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:16px">No members</div>';
             return;
         }
 
-        // Parallel Fetch for robustness (Assume manageable size for this app)
         const promises = memberIds.map(uid => {
             if (state.usersCache.has(uid)) return Promise.resolve(state.usersCache.get(uid));
             return db.collection('users').doc(uid).get().then(doc => {
-                if(doc.exists) {
+                if (doc.exists) {
                     const d = doc.data();
-                    d.uid = doc.id; // Ensure uid is attached
+                    d.uid = doc.id;
                     state.usersCache.set(uid, d);
                     return d;
                 }
@@ -454,64 +486,65 @@ async function viewClubProfile(club) {
         });
 
         const users = await Promise.all(promises);
-        
         let html = '';
         users.forEach(u => {
-            if (!u) return; // User might be deleted
+            if (!u) return;
             const status = calculateStatus(u);
             const isOwner = club.createdBy === u.uid;
-            
+            const avatar = u.photoURL || generateAvatar(u.displayName || 'User');
             html += `
                 <div class="member-row" onclick="window.openChatFromProfile('${u.uid}')">
-                    <img src="${u.photoURL || 'https://via.placeholder.com/40'}" onerror="this.src='https://via.placeholder.com/40'">
+                    <img src="${avatar}" onerror="this.src='${generateAvatar(u.displayName || 'User')}'">
                     <div class="mem-info">
                         <span class="mem-name">${escapeHtml(u.displayName)} ${isOwner ? '<span class="owner-tag">OWNER</span>' : ''}</span>
-                        <span class="mem-status" style="color:${status === 'Online' ? '#00b894' : '#b2bec3'}">${status}</span>
+                        <span class="mem-status" style="color:${status === 'Online' ? 'var(--success)' : 'var(--text-muted)'}">${status}</span>
                     </div>
-                </div>
-            `;
+                </div>`;
         });
         list.innerHTML = html;
-
     } catch (e) {
         console.error(e);
-        list.innerHTML = '<div style="color:var(--danger)">Error loading members</div>';
+        list.innerHTML = '<div style="color:var(--danger);text-align:center">Error loading members</div>';
     }
 }
 
-// Helper to bridge profile click to chat
 window.openChatFromProfile = (uid) => {
     if (uid === state.currentUser.uid) return;
     document.getElementById('modal-club-profile').classList.add('hidden');
     const user = state.usersCache.get(uid);
-    if(user) openChat(user);
+    if (user) openChat(user);
 };
 
+// --- UI Helpers ---
 function prepareChatUI() {
     dom.emptyState.classList.add('hidden');
     dom.chatArea.classList.remove('hidden');
     if (window.innerWidth <= 768) dom.sidebar.classList.add('hidden-mobile');
     dom.userSearch.value = '';
     dom.searchResults.classList.add('hidden');
+
+    // Close emoji picker
+    state.emojiPickerOpen = false;
+    dom.emojiPicker.classList.add('hidden');
 }
 
 export function closeChatUI() {
     dom.sidebar.classList.remove('hidden-mobile');
     dom.chatArea.classList.add('hidden');
     dom.emptyState.classList.remove('hidden');
-    
+
     if (state.listeners.messages) state.listeners.messages();
     if (state.listeners.typing) state.listeners.typing();
-    
+
     state.currentChatUser = null;
     state.currentClubData = null;
     localStorage.removeItem('lastChatId');
     window.cancelInputMode();
-    
+
     document.querySelectorAll('.user-item, .club-item').forEach(el => el.classList.remove('active'));
 }
 
-// Search Logic
+// --- Search ---
 dom.userSearch.addEventListener('input', e => {
     clearTimeout(state.intervals.search);
     const q = e.target.value.trim().toLowerCase();
@@ -524,9 +557,9 @@ dom.userSearch.addEventListener('input', e => {
         res.classList.remove('hidden');
         list.classList.add('hidden');
         const content = document.getElementById('search-list-content');
-        content.innerHTML = '<div style="padding:10px;text-align:center">Searching...</div>';
+        content.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">Searching...</div>';
         try {
-            const snap = await db.collection('users').where('customId', '>=', q).where('customId', '<=', q+'\uf8ff').limit(5).get();
+            const snap = await db.collection('users').where('customId', '>=', q).where('customId', '<=', q + '\uf8ff').limit(5).get();
             content.innerHTML = '';
             snap.forEach(doc => {
                 if (doc.id !== state.currentUser.uid) {
@@ -534,8 +567,8 @@ dom.userSearch.addEventListener('input', e => {
                     renderSearchItem(doc.data(), content);
                 }
             });
-            if (snap.empty) content.innerHTML = '<div style="padding:10px;text-align:center">No users found</div>';
-        } catch(e){ console.error(e); }
+            if (snap.empty) content.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">No users found</div>';
+        } catch (e) { console.error(e); }
     }, 500);
 });
 
@@ -543,8 +576,9 @@ function renderSearchItem(user, container) {
     const div = document.createElement('div');
     div.className = 'user-item';
     div.onclick = () => openChat(user);
+    const avatar = user.photoURL || generateAvatar(user.displayName || 'User');
     div.innerHTML = `
-        <img src="${user.photoURL}" onerror="this.src='https://via.placeholder.com/50'">
-        <div class="user-info"><h4>${escapeHtml(user.displayName)}</h4><span style="font-size:11px;color:#b2bec3">@${user.customId}</span></div>`;
+        <img src="${avatar}" onerror="this.src='${generateAvatar(user.displayName || 'User')}'">
+        <div class="user-info"><h4>${escapeHtml(user.displayName)}</h4><span style="font-size:12px;color:var(--text-muted)">@${user.customId}</span></div>`;
     container.appendChild(div);
 }

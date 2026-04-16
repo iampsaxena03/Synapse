@@ -171,18 +171,18 @@ function renderUsers() {
     state.users.forEach(user => {
         const isOnline = calculateRealStatus(user.lastSeen);
         const isBanned = user.isBanned === true;
-        const photo = user.photoURL || 'https://via.placeholder.com/40';
+        const photo = user.photoURL || genAdminAvatar(user.displayName || 'U');
         
         html += `
             <tr id="row-${user.id}" class="user-row" style="opacity: ${isBanned ? '0.5' : '1'}">
                 <td style="display:flex; align-items:center; gap:12px;">
-                    <img src="${photo}" onerror="this.src='https://via.placeholder.com/40'" style="width:35px; height:35px; border-radius:50%; object-fit:cover;">
+                    <img src="${photo}" onerror="this.src='${genAdminAvatar(user.displayName || 'U')}'" style="width:35px; height:35px; border-radius:50%; object-fit:cover;">
                     <div>
                         <div style="font-weight:600; color:white;">${escapeHtml(user.displayName || 'Unknown')}</div>
                         <div style="font-size:11px; opacity:0.7;">${escapeHtml(user.email || 'No Email')}</div>
                     </div>
                 </td>
-                <td style="color:var(--accent-color);">@${escapeHtml(user.customId || '--')}</td>
+                <td style="color:var(--accent);">@${escapeHtml(user.customId || '--')}</td>
                 <td class="time-label" style="font-size:12px;">${formatLastSeen(user.lastSeen)}</td>
                 <td>
                     <span class="status-badge ${isBanned?'badge-banned':(isOnline?'badge-online':'badge-offline')}">
@@ -252,7 +252,7 @@ function renderClubs() {
                 </td>
                 <td>
                     ${isOfficial ? '<span style="color:var(--gold); font-size:11px;"><i class="fa-solid fa-certificate"></i> Official</span>' : '<span style="opacity:0.5; font-size:11px;">Community</span>'}
-                    ${club.isAnonymous ? '<span style="color:var(--accent-color); font-size:11px; margin-left:5px;"><i class="fa-solid fa-mask"></i> Anon</span>' : ''}
+                    ${club.isAnonymous ? '<span style="color:var(--accent); font-size:11px; margin-left:5px;"><i class="fa-solid fa-mask"></i> Anon</span>' : ''}
                 </td>
                 <td>${isPrivate ? '<span style="color:var(--danger)"><i class="fa-solid fa-lock"></i> Private</span>' : '<span style="color:var(--success)">Public</span>'}</td>
                 <td>${count} Members</td>
@@ -292,8 +292,8 @@ function updateChart() {
             labels: ['Online Agents', 'Offline Agents'],
             datasets: [{ 
                 data: [online, offline], 
-                backgroundColor: ['#00b894', '#2d3436'],
-                borderColor: '#15122e',
+                backgroundColor: ['#10b981', '#1a1a28'],
+                borderColor: '#07070d',
                 borderWidth: 2
             }]
         },
@@ -302,7 +302,7 @@ function updateChart() {
             maintainAspectRatio: false, 
             animation: { duration: 800 },
             plugins: { 
-                legend: { position: 'bottom', labels: { color: '#b2bec3', font: { family: 'Outfit' } } } 
+                legend: { position: 'bottom', labels: { color: '#94a3b8', font: { family: 'Inter' } } } 
             } 
         }
     });
@@ -376,7 +376,7 @@ window.searchUsersForClub = (q) => {
     box.innerHTML = '';
     matches.forEach(u => {
         const d = document.createElement('div');
-        d.innerHTML = `<img src="${u.photoURL || 'https://via.placeholder.com/30'}"> ${escapeHtml(u.displayName)}`;
+        d.innerHTML = `<img src="${u.photoURL || genAdminAvatar(u.displayName || 'U')}"> ${escapeHtml(u.displayName)}`;
         d.onclick = () => { 
             tempMembers.add(u.id); 
             renderTempMembers(); 
@@ -446,7 +446,7 @@ function renderManagerList(m) {
             d.style.cssText = "display:flex; justify-content:space-between; padding:10px; background:rgba(255,255,255,0.05); border-radius:8px; margin-bottom:5px; align-items:center;";
             d.innerHTML = `
                 <div style="display:flex;align-items:center;gap:10px">
-                    <img src="${u.photoURL || 'https://via.placeholder.com/30'}" style="width:30px;height:30px;border-radius:50%">
+                    <img src="${u.photoURL || genAdminAvatar(u.displayName || 'U')}" style="width:30px;height:30px;border-radius:50%">
                     <span>${escapeHtml(u.displayName)}</span>
                 </div> 
                 <button class="btn-mini btn-ban" onclick="window.kickMember('${uid}')"><i class="fa-solid fa-minus"></i></button>`;
@@ -471,7 +471,7 @@ window.searchUsersForManager = (q) => {
     box.innerHTML = '';
     matches.forEach(u => {
         const d = document.createElement('div');
-        d.innerHTML = `<img src="${u.photoURL || 'https://via.placeholder.com/30'}"> ${escapeHtml(u.displayName)}`;
+        d.innerHTML = `<img src="${u.photoURL || genAdminAvatar(u.displayName || 'U')}"> ${escapeHtml(u.displayName)}`;
         d.onclick = () => { 
             window.addMemberToClub(u.id); 
             document.getElementById('manage-search-input').value=''; 
@@ -524,4 +524,12 @@ function escapeHtml(text) {
         .replace(/>/g, "&gt;")
         .replace(/"/g, "&quot;")
         .replace(/'/g, "&#039;");
+}
+
+function genAdminAvatar(name) {
+    const initials = (name || '?').split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+    let hash = 0;
+    for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+    const hue = Math.abs(hash) % 360;
+    return `data:image/svg+xml,${encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" viewBox="0 0 100 100"><rect width="100" height="100" rx="50" fill="hsl(${hue},65%,55%)"/><text x="50" y="53" font-size="38" text-anchor="middle" dominant-baseline="central" fill="white" font-family="Inter,sans-serif" font-weight="600">${initials}</text></svg>`)}`;
 }

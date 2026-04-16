@@ -1,11 +1,12 @@
+// ——— SYNAPSE v2.0 — MESSAGES ———
 import { db, FieldValue } from './config.js';
 import { state } from './state.js';
 import { dom } from './dom.js';
-import { escapeHtml, getSafeDate, getFriendlyDate } from './utils.js';
+import { escapeHtml, getSafeDate, getFriendlyDate, linkifyText, playSound, generateAvatar } from './utils.js';
 import { attachGestures } from './interactions.js';
 import { calculateStatus } from './chat-list.js';
 
-// --- READ RECEIPTS ---
+// --- Read Receipts ---
 export async function markMessagesAsRead(partnerId) {
     if (!state.currentUser) return;
     const chatId = [state.currentUser.uid, partnerId].sort().join('_');
@@ -16,7 +17,6 @@ export async function markMessagesAsRead(partnerId) {
             .where('read', '==', false)
             .limit(20)
             .get();
-
         if (snap.empty) return;
         snap.forEach(doc => batch.update(doc.ref, { read: true }));
         await batch.commit();
@@ -27,19 +27,18 @@ export async function resetUnreadCount(partnerId) {
     if (!state.currentUser) return;
     try {
         const row = document.getElementById(`user-row-${partnerId}`);
-        if(row) {
-             let badge = row.querySelector('.unread-badge');
-             if(badge) badge.style.display = 'none';
+        if (row) {
+            let badge = row.querySelector('.unread-badge');
+            if (badge) badge.style.display = 'none';
         }
-
         await db.collection('users').doc(state.currentUser.uid)
             .collection('activeChats').doc(partnerId)
-            .update({ unreadCount: 0 }); 
-    } catch (e) { 
-        if(e.code === 'not-found') {
-             await db.collection('users').doc(state.currentUser.uid)
-            .collection('activeChats').doc(partnerId)
-            .set({ unreadCount: 0 }, { merge: true });
+            .update({ unreadCount: 0 });
+    } catch (e) {
+        if (e.code === 'not-found') {
+            await db.collection('users').doc(state.currentUser.uid)
+                .collection('activeChats').doc(partnerId)
+                .set({ unreadCount: 0 }, { merge: true });
         }
     }
 }
@@ -51,24 +50,27 @@ export async function updateClubReadStatus(clubId) {
             .collection('clubStates').doc(clubId).set({
                 lastRead: FieldValue.serverTimestamp()
             }, { merge: true });
-    } catch(e) { console.warn("Club read status error:", e); }
+    } catch (e) { console.warn("Club read status error:", e); }
 }
 
-// --- MESSAGES LOADING ---
+// --- Load Messages ---
+let isFirstLoad = true;
+
 export async function loadMessages(id, isClub) {
     if (state.listeners.messages) state.listeners.messages();
     dom.feed.innerHTML = '';
     state.scroll.oldestSnapshot = null;
     state.scroll.allLoaded = false;
     state.currentChatParams.hiddenBefore = null;
-    
+    isFirstLoad = true;
+
     const targetId = id;
 
     if (!isClub) {
         try {
             const metaDoc = await db.collection('users').doc(state.currentUser.uid)
-                                   .collection('activeChats').doc(id).get();
-            
+                .collection('activeChats').doc(id).get();
+
             if (state.currentChatUser?.uid !== targetId && state.currentClubData?.id !== targetId) return;
 
             if (metaDoc.exists && metaDoc.data().hiddenBefore) {
@@ -77,26 +79,23 @@ export async function loadMessages(id, isClub) {
         } catch (e) { console.error("Error fetching chat meta", e); }
     }
 
-    let ref = isClub ? 
-        db.collection('clubs').doc(id).collection('messages') : 
+    let ref = isClub ?
+        db.collection('clubs').doc(id).collection('messages') :
         db.collection('chats').doc([state.currentUser.uid, id].sort().join('_')).collection('messages');
 
     state.listeners.messages = ref.orderBy('timestamp', 'asc').limitToLast(40).onSnapshot(snap => {
         if (!snap.empty) {
             if (!state.scroll.oldestSnapshot) state.scroll.oldestSnapshot = snap.docs[0];
-            
+
             if (document.visibilityState === 'visible') {
                 setTimeout(() => {
                     if (!isClub) {
                         const hasUnread = snap.docs.some(doc => doc.data().senderId === id && !doc.data().read);
-                        if (hasUnread) { 
-                            markMessagesAsRead(id); 
-                            resetUnreadCount(id); 
-                        }
+                        if (hasUnread) { markMessagesAsRead(id); resetUnreadCount(id); }
                     } else {
                         updateClubReadStatus(id);
                     }
-                }, 50); 
+                }, 50);
             }
         }
 
@@ -128,9 +127,15 @@ export async function loadMessages(id, isClub) {
 
                     const div = createMessageBubble(data, doc.id, isClub);
                     dom.feed.appendChild(div);
-                    dom.feed.scrollTop = dom.feed.scrollHeight; 
+
+                    // Play receive sound for new messages (not on first load)
+                    if (!isFirstLoad && data.senderId !== state.currentUser.uid) {
+                        playSound('receive');
+                    }
+
+                    dom.feed.scrollTop = dom.feed.scrollHeight;
                 }
-            } 
+            }
             else if (change.type === 'modified') {
                 const existing = document.getElementById(`msg-${change.doc.id}`);
                 if (existing) {
@@ -143,6 +148,8 @@ export async function loadMessages(id, isClub) {
                 }
             }
         });
+
+        isFirstLoad = false;
     });
 }
 
@@ -153,15 +160,15 @@ function createDateSeparator(dateStr) {
     return div;
 }
 
-// --- RENDER BUBBLE ---
+// --- Render Message Bubble ---
 function createMessageBubble(msg, id, isClub) {
     const isSent = msg.senderId === state.currentUser.uid;
     const div = document.createElement('div');
     div.id = `msg-${id}`;
-    
+
     const safeDate = getSafeDate(msg.timestamp);
     div.dataset.date = getFriendlyDate(safeDate);
-    
+
     if (msg.isDeleted) {
         div.className = `msg-row ${isSent ? 'sent' : 'received'} deleted`;
         div.innerHTML = `
@@ -172,9 +179,9 @@ function createMessageBubble(msg, id, isClub) {
     }
 
     div.className = `msg-row ${isSent ? 'sent' : 'received'}`;
-    const time = safeDate.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+    const time = safeDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     let meta = `<span class="msg-time">${time}</span>`;
-    
+
     if (msg.isEdited) {
         meta = `<span class="edited-label">(edited)</span> ` + meta;
     }
@@ -185,8 +192,8 @@ function createMessageBubble(msg, id, isClub) {
 
     let sender = '';
     if (isClub && !isSent) {
-        sender = state.currentClubData?.isAnonymous ? 
-            `<div class="sender-name" style="color:#fab1a0"><i class="fa-solid fa-mask"></i> Anonymous Fox</div>` :
+        sender = state.currentClubData?.isAnonymous ?
+            `<div class="sender-name" style="color:#f59e0b"><i class="fa-solid fa-mask"></i> Anonymous</div>` :
             `<div class="sender-name">${escapeHtml(msg.displayName || 'User')}</div>`;
     }
 
@@ -204,7 +211,7 @@ function createMessageBubble(msg, id, isClub) {
         forwardLabel = `<div class="forward-label"><i class="fa-solid fa-share"></i> Forwarded</div>`;
     }
 
-    const msgData = {id: id, content: msg.content, displayName: msg.displayName || 'User', senderId: msg.senderId, type: msg.type};
+    const msgData = { id, content: msg.content, displayName: msg.displayName || 'User', senderId: msg.senderId, type: msg.type };
     const msgDataJSON = JSON.stringify(msgData);
 
     const canEdit = isSent && msg.type === 'text';
@@ -223,14 +230,32 @@ function createMessageBubble(msg, id, isClub) {
         </div>
     `;
 
+    // Use linkifyText for content (auto-links URLs)
+    const linkedContent = linkifyText(msg.content);
+
+    // Reactions display
+    const reactions = state.reactionsCache.get(id);
+    let reactionsHtml = '';
+    if (reactions && Object.keys(reactions).length > 0) {
+        reactionsHtml = '<div class="msg-reactions">';
+        for (const [emoji, users] of Object.entries(reactions)) {
+            const isMine = users.includes(state.currentUser.uid);
+            reactionsHtml += `<div class="reaction-chip ${isMine ? 'mine' : ''}" onclick="event.stopPropagation(); window.toggleReaction('${id}', '${emoji}')">
+                ${emoji}<span class="reaction-count">${users.length}</span>
+            </div>`;
+        }
+        reactionsHtml += '</div>';
+    }
+
     div.innerHTML = `
         ${actionMenu}
         <div class="msg-bubble">
             ${forwardLabel}
             ${replyBlock}
             ${sender}
-            <span>${escapeHtml(msg.content)}</span>
+            <span>${linkedContent}</span>
             <div class="msg-meta">${meta}</div>
+            ${reactionsHtml}
         </div>
     `;
 
@@ -239,22 +264,22 @@ function createMessageBubble(msg, id, isClub) {
     return div;
 }
 
-// --- SCROLL LOGIC ---
+// --- Scroll Logic ---
 export async function loadMoreMessages() {
     if (!state.scroll.oldestSnapshot) return;
     state.scroll.isFetching = true;
 
     let oldFirstMsgDate = null;
     let runner = dom.feed.firstElementChild;
-    while(runner && !runner.classList.contains('msg-row')) {
+    while (runner && !runner.classList.contains('msg-row')) {
         runner = runner.nextElementSibling;
     }
     if (runner && runner.dataset.date) {
         oldFirstMsgDate = runner.dataset.date;
     }
-    
-    let ref = state.currentClubData ? 
-        db.collection('clubs').doc(state.currentClubData.id).collection('messages') : 
+
+    let ref = state.currentClubData ?
+        db.collection('clubs').doc(state.currentClubData.id).collection('messages') :
         db.collection('chats').doc([state.currentUser.uid, state.currentChatUser.uid].sort().join('_')).collection('messages');
 
     try {
@@ -262,9 +287,9 @@ export async function loadMoreMessages() {
         if (snap.empty) { state.scroll.allLoaded = true; state.scroll.isFetching = false; return; }
 
         state.scroll.oldestSnapshot = snap.docs[snap.docs.length - 1];
-        
+
         const fragment = document.createDocumentFragment();
-        const docs = snap.docs.reverse(); 
+        const docs = snap.docs.reverse();
         let batchLastDate = null;
 
         docs.forEach(doc => {
@@ -273,12 +298,12 @@ export async function loadMoreMessages() {
 
             const safeDate = getSafeDate(data.timestamp);
             const msgDate = getFriendlyDate(safeDate);
-            
+
             if (msgDate !== batchLastDate) {
                 fragment.appendChild(createDateSeparator(msgDate));
                 batchLastDate = msgDate;
             }
-            
+
             const msgDiv = createMessageBubble(data, doc.id, !!state.currentClubData);
             fragment.appendChild(msgDiv);
         });
@@ -294,11 +319,11 @@ export async function loadMoreMessages() {
         dom.feed.insertBefore(fragment, dom.feed.firstElementChild);
         dom.feed.scrollTop = dom.feed.scrollHeight - prevHeight;
 
-    } catch(e) { console.error(e); } 
+    } catch (e) { console.error(e); }
     finally { state.scroll.isFetching = false; }
 }
 
-// --- SEND LOGIC ---
+// --- Send Message ---
 const sendMsg = async () => {
     const input = dom.msgInput;
     const txt = input.value.trim();
@@ -307,21 +332,29 @@ const sendMsg = async () => {
     const mode = state.inputMode;
     const target = state.targetMsg;
     const isClub = !!state.currentClubData;
-    
+
+    // Close emoji picker
+    state.emojiPickerOpen = false;
+    dom.emojiPicker.classList.add('hidden');
+
     if (mode === 'edit') {
         if (!target) return;
         try {
-            let ref = isClub ? 
-                db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(target.id) : 
+            let ref = isClub ?
+                db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc(target.id) :
                 db.collection('chats').doc([state.currentUser.uid, state.currentChatUser.uid].sort().join('_')).collection('messages').doc(target.id);
-            
+
             await ref.update({
                 content: txt,
                 isEdited: true,
                 editedAt: FieldValue.serverTimestamp()
             });
             window.cancelInputMode();
-        } catch(e) { console.error(e); }
+            import('./ui.js').then(({ showToast }) => showToast('Message edited', 'success'));
+        } catch (e) {
+            console.error(e);
+            import('./ui.js').then(({ showToast }) => showToast('Error editing message', 'error'));
+        }
         return;
     }
 
@@ -331,20 +364,18 @@ const sendMsg = async () => {
     stopTyping();
     window.cancelInputMode();
 
-    const safeTxt = txt.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const safeTxt = escapeHtml(txt);
     const ts = FieldValue.serverTimestamp();
 
     let ref;
-    let msgId;
-
     if (isClub) {
         ref = db.collection('clubs').doc(state.currentClubData.id).collection('messages').doc();
     } else {
         const chatId = [state.currentUser.uid, state.currentChatUser.uid].sort().join('_');
         ref = db.collection('chats').doc(chatId).collection('messages').doc();
     }
-    
-    msgId = ref.id;
+
+    const msgId = ref.id;
 
     const localData = {
         content: safeTxt,
@@ -362,20 +393,23 @@ const sendMsg = async () => {
         } : null
     };
 
+    // Optimistic render
     if (!document.getElementById(`msg-${msgId}`)) {
         const bubble = createMessageBubble(localData, msgId, isClub);
         dom.feed.appendChild(bubble);
         dom.feed.scrollTop = dom.feed.scrollHeight;
     }
 
+    playSound('send');
+
     try {
         const payload = {
-            content: safeTxt, 
-            senderId: state.currentUser.uid, 
-            type: 'text', 
+            content: safeTxt,
+            senderId: state.currentUser.uid,
+            type: 'text',
             timestamp: ts
         };
-        
+
         if (isClub) {
             payload.displayName = state.currentUser.displayName;
         } else {
@@ -398,27 +432,28 @@ const sendMsg = async () => {
             updateClubReadStatus(state.currentClubData.id);
         } else {
             const batch = db.batch();
+            const truncatedMsg = safeTxt.length > 40 ? safeTxt.substring(0, 40) + '...' : safeTxt;
             const myRef = db.collection('users').doc(state.currentUser.uid).collection('activeChats').doc(state.currentChatUser.uid);
-            batch.set(myRef, { timestamp: ts }, { merge: true });
+            batch.set(myRef, { timestamp: ts, lastMessage: truncatedMsg }, { merge: true });
 
             const partnerRef = db.collection('users').doc(state.currentChatUser.uid).collection('activeChats').doc(state.currentUser.uid);
-            batch.set(partnerRef, { timestamp: ts, unreadCount: FieldValue.increment(1) }, { merge: true });
-            
+            batch.set(partnerRef, { timestamp: ts, unreadCount: FieldValue.increment(1), lastMessage: truncatedMsg }, { merge: true });
+
             await batch.commit();
         }
-    } catch (e) { 
-        console.error("Send error", e); 
+    } catch (e) {
+        console.error("Send error", e);
         const bubble = document.getElementById(`msg-${msgId}`);
-        if (bubble) bubble.style.opacity = '0.5'; 
+        if (bubble) bubble.style.opacity = '0.5';
     }
 };
 
 dom.sendBtn.addEventListener('click', sendMsg);
 dom.sendBtn.addEventListener('mousedown', (e) => e.preventDefault());
 dom.sendBtn.addEventListener('touchstart', (e) => { e.preventDefault(); sendMsg(); });
-dom.msgInput.addEventListener('keydown', e => { if(e.key === 'Enter') sendMsg(); });
+dom.msgInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMsg(); });
 
-// Typing Indicators
+// --- Typing Indicators ---
 dom.msgInput.addEventListener('input', e => {
     const hasText = e.target.value.trim() !== '';
     dom.sendBtn.classList.toggle('hidden', !hasText);
@@ -438,12 +473,12 @@ async function sendTypingSignal() {
     try {
         if (state.currentChatUser) {
             const chatId = [state.currentUser.uid, state.currentChatUser.uid].sort().join('_');
-            await db.collection('chats').doc(chatId).collection('typing').doc(state.currentUser.uid).set(data, {merge:true});
+            await db.collection('chats').doc(chatId).collection('typing').doc(state.currentUser.uid).set(data, { merge: true });
         } else if (state.currentClubData) {
             if (state.currentClubData.isAnonymous) data.displayName = 'Someone';
-            await db.collection('clubs').doc(state.currentClubData.id).collection('typing').doc(state.currentUser.uid).set(data, {merge:true});
+            await db.collection('clubs').doc(state.currentClubData.id).collection('typing').doc(state.currentUser.uid).set(data, { merge: true });
         }
-    } catch(e){}
+    } catch (e) { }
 }
 
 async function stopTyping() {
@@ -456,13 +491,13 @@ async function stopTyping() {
         } else if (state.currentClubData) {
             await db.collection('clubs').doc(state.currentClubData.id).collection('typing').doc(state.currentUser.uid).delete();
         }
-    } catch(e){}
+    } catch (e) { }
 }
 
 export function listenForTyping(id, isClub) {
     if (state.listeners.typing) state.listeners.typing();
-    let ref = isClub ? db.collection('clubs').doc(id).collection('typing') 
-                     : db.collection('chats').doc([state.currentUser.uid, id].sort().join('_')).collection('typing');
+    let ref = isClub ? db.collection('clubs').doc(id).collection('typing')
+        : db.collection('chats').doc([state.currentUser.uid, id].sort().join('_')).collection('typing');
 
     state.listeners.typing = ref.onSnapshot(snap => {
         const typers = [];
@@ -474,25 +509,29 @@ export function listenForTyping(id, isClub) {
             }
         });
         const el = document.getElementById('partner-status');
+        if (!el) return;
         if (typers.length > 0) {
             el.classList.add('typing-active');
-            el.style.color = '#6c5ce7';
+            el.style.color = 'var(--accent)';
             el.textContent = isClub ? (typers.length > 2 ? 'Several people are typing...' : `${typers.join(", ")} is typing...`) : 'typing...';
         } else {
             el.classList.remove('typing-active');
             if (isClub) {
-                el.textContent = state.currentClubData.isAnonymous ? 'Anonymous Den' : 'Public Room';
-                el.style.color = state.currentClubData.isAnonymous ? '#fdcb6e' : '#b2bec3';
+                el.textContent = state.currentClubData?.isAnonymous ? 'Anonymous Den' : 'Public Room';
+                el.style.color = state.currentClubData?.isAnonymous ? 'var(--gold)' : 'var(--text-muted)';
             } else {
-                const user = state.usersCache.get(state.currentChatUser.uid);
-                const status = calculateStatus(user);
-                el.textContent = status;
-                el.style.color = status === 'Online' ? '#00b894' : '#b2bec3';
+                const user = state.usersCache.get(state.currentChatUser?.uid);
+                if (user) {
+                    const status = calculateStatus(user);
+                    el.textContent = status;
+                    el.style.color = status === 'Online' ? 'var(--success)' : 'var(--text-muted)';
+                }
             }
         }
     });
 }
 
+// --- Forward List ---
 export function loadForwardList(type) {
     if (type === 'chats') {
         document.getElementById('fwd-tab-chats').classList.add('active');
@@ -507,15 +546,16 @@ export function loadForwardList(type) {
 
     if (type === 'chats') {
         if (state.usersCache.size === 0) {
-            container.innerHTML = '<div style="padding:15px;text-align:center;opacity:0.5">No recent chats loaded.</div>';
+            container.innerHTML = '<div style="padding:16px;text-align:center;color:var(--text-muted);font-size:13px">No recent chats</div>';
             return;
         }
         state.usersCache.forEach(user => {
             if (user.uid === state.currentUser.uid) return;
+            const avatar = user.photoURL || generateAvatar(user.displayName || 'User');
             const div = document.createElement('div');
             div.className = 'user-item';
             div.innerHTML = `
-                <img src="${user.photoURL}" onerror="this.src='https://via.placeholder.com/50'">
+                <img src="${avatar}" onerror="this.src='${generateAvatar(user.displayName || 'User')}'">
                 <div class="user-info"><h4>${escapeHtml(user.displayName)}</h4></div>
                 <button class="forward-btn-action" onclick="window.confirmForward('${user.uid}', false)">Send</button>
             `;
@@ -528,9 +568,9 @@ export function loadForwardList(type) {
                 const div = document.createElement('div');
                 div.className = 'club-item';
                 div.innerHTML = `
-                     <i class="${club.icon || 'fa-solid fa-users'} club-icon"></i>
-                     <div class="user-info"><h4>${escapeHtml(club.name)}</h4></div>
-                     <button class="forward-btn-action" onclick="window.confirmForward('${doc.id}', true)">Send</button>
+                    <i class="${club.icon || 'fa-solid fa-users'} club-icon"></i>
+                    <div class="user-info"><h4>${escapeHtml(club.name)}</h4></div>
+                    <button class="forward-btn-action" onclick="window.confirmForward('${doc.id}', true)">Send</button>
                 `;
                 container.appendChild(div);
             });
@@ -538,28 +578,80 @@ export function loadForwardList(type) {
     }
 }
 
-// FIX: Expose loadForwardList to window to allow interactions.js to call it without importing
 window.loadForwardList = loadForwardList;
 
-// Attach globals
+// --- Reactions (Local) ---
+window.toggleReaction = (msgId, emoji) => {
+    let reactions = state.reactionsCache.get(msgId) || {};
+    if (!reactions[emoji]) reactions[emoji] = [];
+
+    const uid = state.currentUser.uid;
+    const idx = reactions[emoji].indexOf(uid);
+    if (idx >= 0) {
+        reactions[emoji].splice(idx, 1);
+        if (reactions[emoji].length === 0) delete reactions[emoji];
+    } else {
+        reactions[emoji].push(uid);
+    }
+
+    state.reactionsCache.set(msgId, reactions);
+
+    // Re-render the message reactions
+    const msgEl = document.getElementById(`msg-${msgId}`);
+    if (msgEl) {
+        const bubble = msgEl.querySelector('.msg-bubble');
+        let reactionsDiv = bubble.querySelector('.msg-reactions');
+        if (!reactionsDiv) {
+            reactionsDiv = document.createElement('div');
+            reactionsDiv.className = 'msg-reactions';
+            bubble.appendChild(reactionsDiv);
+        }
+
+        if (Object.keys(reactions).length === 0) {
+            reactionsDiv.remove();
+            return;
+        }
+
+        let html = '';
+        for (const [e, users] of Object.entries(reactions)) {
+            const isMine = users.includes(uid);
+            html += `<div class="reaction-chip ${isMine ? 'mine' : ''}" onclick="event.stopPropagation(); window.toggleReaction('${msgId}', '${e}')">
+                ${e}<span class="reaction-count">${users.length}</span>
+            </div>`;
+        }
+        reactionsDiv.innerHTML = html;
+    }
+};
+
+// --- Global Functions ---
 window.scrollToMsg = (id) => {
     const el = document.getElementById(`msg-${id}`);
     if (el) {
         el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        el.querySelector('.msg-bubble').style.background = 'var(--glass-highlight)';
-        setTimeout(() => el.querySelector('.msg-bubble').style.background = '', 1000);
-    } else { alert("Message is too old or not loaded."); }
+        const bubble = el.querySelector('.msg-bubble');
+        if (bubble) {
+            bubble.style.boxShadow = '0 0 0 2px var(--accent)';
+            setTimeout(() => { bubble.style.boxShadow = ''; }, 1500);
+        }
+    } else {
+        import('./ui.js').then(({ showToast }) => showToast('Message not loaded', 'info'));
+    }
 };
 
 window.clearChat = async () => {
-    if (!state.currentChatUser || !confirm("Clear chat history? This only clears it for you.")) return;
+    if (!state.currentChatUser) return;
+    if (!confirm("Clear chat history? This only clears it for you.")) return;
     try {
         const partnerId = state.currentChatUser.uid;
         await db.collection('users').doc(state.currentUser.uid)
-                .collection('activeChats').doc(partnerId)
-                .set({ hiddenBefore: FieldValue.serverTimestamp() }, { merge: true });
-        loadMessages(partnerId, false); 
-    } catch(e) { console.error("Clear chat error", e); }
+            .collection('activeChats').doc(partnerId)
+            .set({ hiddenBefore: FieldValue.serverTimestamp() }, { merge: true });
+        loadMessages(partnerId, false);
+        import('./ui.js').then(({ showToast }) => showToast('Chat cleared', 'success'));
+    } catch (e) {
+        console.error("Clear chat error", e);
+        import('./ui.js').then(({ showToast }) => showToast('Error clearing chat', 'error'));
+    }
 };
 
 window.confirmForward = async (targetId, isClub) => {
@@ -572,18 +664,18 @@ window.confirmForward = async (targetId, isClub) => {
     try {
         let ref;
         const ts = FieldValue.serverTimestamp();
-        
+
         if (isClub) {
-             ref = db.collection('clubs').doc(targetId).collection('messages').doc();
-             await ref.set({
+            ref = db.collection('clubs').doc(targetId).collection('messages').doc();
+            await ref.set({
                 content: state.forwardContent,
                 senderId: state.currentUser.uid,
                 displayName: state.currentUser.displayName,
                 type: 'text',
                 isForwarded: true,
                 timestamp: ts
-             });
-             await db.collection('clubs').doc(targetId).update({ lastMessageAt: ts });
+            });
+            await db.collection('clubs').doc(targetId).update({ lastMessageAt: ts });
         } else {
             const chatId = [state.currentUser.uid, targetId].sort().join('_');
             ref = db.collection('chats').doc(chatId).collection('messages').doc();
@@ -600,16 +692,19 @@ window.confirmForward = async (targetId, isClub) => {
             batch.set(db.collection('users').doc(targetId).collection('activeChats').doc(state.currentUser.uid), { timestamp: ts, unreadCount: FieldValue.increment(1) }, { merge: true });
             await batch.commit();
         }
-        
+
         setTimeout(() => {
             dom.forwardModal.classList.add('hidden');
             btn.textContent = oldText;
             btn.disabled = false;
         }, 800);
-    } catch(e) { console.error(e); btn.textContent = 'Error'; }
+    } catch (e) {
+        console.error(e);
+        btn.textContent = 'Error';
+    }
 };
 
-// Event Listeners for Forward Modal
+// Forward modal listeners
 document.getElementById('close-forward-modal').addEventListener('click', () => {
     dom.forwardModal.classList.add('hidden');
     state.forwardContent = null;

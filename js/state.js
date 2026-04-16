@@ -1,19 +1,28 @@
-// --- STATE MANAGEMENT ---
+// ——— SYNAPSE v2.0 — STATE MANAGEMENT ———
 export const state = {
     currentUser: null,
     currentChatUser: null,
     currentClubData: null,
     currentChatParams: { hiddenBefore: null },
-    
-    // NEW STATES FOR FEATURES
+
+    // Input modes
     inputMode: 'normal', // 'normal', 'reply', 'edit'
-    targetMsg: null,     // The message being Replied to or Edited
-    forwardContent: null, // Content waiting to be forwarded
-    
+    targetMsg: null,
+    forwardContent: null,
+
+    // UI state
     activeTab: 'chats',
     isLoginMode: true,
+    emojiPickerOpen: false,
+
+    // Caches
     usersCache: new Map(),
+    reactionsCache: new Map(), // msgId -> { emoji: [uid, ...] }
+
+    // Pending actions
     pendingDelete: { id: null, isClub: false, isSender: false },
+
+    // Firebase listeners
     listeners: {
         messages: null,
         mainChats: null,
@@ -22,20 +31,30 @@ export const state = {
         profiles: new Map(),
         rowTyping: new Map()
     },
+
+    // Intervals & Timeouts
     intervals: {
         heartbeat: null,
         statusWatcher: null,
         search: null,
         typing: null
     },
+
+    // Scroll state
     scroll: {
         oldestSnapshot: null,
         isFetching: false,
         allLoaded: false
+    },
+
+    // Settings (persisted in localStorage)
+    settings: {
+        sound: localStorage.getItem('synapse_sound') !== 'false',
+        vibrate: localStorage.getItem('synapse_vibrate') !== 'false'
     }
 };
 
-// --- LISTENER MANAGER ---
+// --- Listener Manager ---
 export const ListenerMgr = {
     addProfile(uid, unsub) {
         if (state.listeners.profiles.has(uid)) state.listeners.profiles.get(uid)();
@@ -66,7 +85,13 @@ export const ListenerMgr = {
     clearMain() {
         if (state.listeners.messages) state.listeners.messages();
         if (state.listeners.mainChats) state.listeners.mainChats();
-        if (state.listeners.clubs) state.listeners.clubs();
+        if (state.listeners.clubs) {
+            if (Array.isArray(state.listeners.clubs)) {
+                state.listeners.clubs.forEach(u => u());
+            } else if (typeof state.listeners.clubs === 'function') {
+                state.listeners.clubs();
+            }
+        }
         if (state.listeners.typing) state.listeners.typing();
         this.clearAllRowListeners();
     }

@@ -1,29 +1,38 @@
-const CACHE_NAME = 'synapse-fail-safe-v4';
+const CACHE_NAME = 'synapse-v2-cache-1';
 
-// EMPTY PRE-CACHE
-// We leave this empty to guarantee installation. 
-// Even if files are missing, this SW will still install and take control.
-const STATIC_ASSETS = []; 
+const STATIC_ASSETS = [
+    './',
+    './index.html',
+    './style.css',
+    './js/main.js',
+    './js/config.js',
+    './js/state.js',
+    './js/dom.js',
+    './js/utils.js',
+    './js/ui.js',
+    './js/auth.js',
+    './js/chat-list.js',
+    './js/messages.js',
+    './js/interactions.js'
+];
 
 self.addEventListener('install', e => {
-    // Force immediate installation
     self.skipWaiting();
     e.waitUntil(
         caches.open(CACHE_NAME).then(cache => {
-            return cache.addAll(STATIC_ASSETS);
+            return cache.addAll(STATIC_ASSETS).catch(() => {
+                // If any asset fails, still install
+                return Promise.resolve();
+            });
         })
     );
 });
 
 self.addEventListener('activate', e => {
-    // Force immediate control over the page (Kills the zombie SW)
     e.waitUntil(clients.claim());
-    
-    // Clean up all old caches
     e.waitUntil(caches.keys().then(keys => Promise.all(
         keys.map(key => {
             if (key !== CACHE_NAME) {
-                console.log('Nuking old cache:', key);
                 return caches.delete(key);
             }
             return Promise.resolve();
@@ -34,20 +43,19 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
     const url = e.request.url;
 
-    // Ignore Firebase/Google API requests
-    if (url.includes('firestore.googleapis.com') || 
-        url.includes('googleapis.com') || 
+    // Skip Firebase / external API requests
+    if (url.includes('firestore.googleapis.com') ||
+        url.includes('googleapis.com') ||
         url.includes('firebase') ||
+        url.includes('gstatic.com') ||
         url.startsWith('chrome-extension')) {
-        return; 
+        return;
     }
 
-    // NETWORK FIRST, CACHE FALLBACK
-    // This ensures you always get the latest file if you are online.
+    // Network first, cache fallback
     e.respondWith(
         fetch(e.request)
             .then(res => {
-                // If network works, cache the fresh copy and return it
                 if (res && res.status === 200 && res.type === 'basic') {
                     const responseToCache = res.clone();
                     caches.open(CACHE_NAME).then(cache => cache.put(e.request, responseToCache));
@@ -55,7 +63,6 @@ self.addEventListener('fetch', e => {
                 return res;
             })
             .catch(() => {
-                // If network fails (Offline), try the cache
                 return caches.match(e.request);
             })
     );
