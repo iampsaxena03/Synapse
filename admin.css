@@ -1,16 +1,30 @@
 :root {
-    --bg-dark: #0f0c29;
-    --bg-mesh-1: #302b63;
-    --bg-mesh-2: #24243e;
-    --accent-color: #6c5ce7;
-    --glass-bg: rgba(25, 25, 40, 0.85);
-    --glass-border: rgba(255, 255, 255, 0.08);
-    --glass-highlight: rgba(255, 255, 255, 0.03);
-    --text-primary: #ffffff;
-    --text-secondary: #b2bec3;
-    --success: #00b894;
-    --danger: #ff7675;
-    --gold: #fdcb6e;
+    /* Premium Deep Palette - HSL (Synced with main app) */
+    --bg-dark: hsl(230, 20%, 6%);
+    --bg-mesh-1: hsl(245, 30%, 12%);
+    --bg-mesh-2: hsl(230, 25%, 8%);
+    
+    --accent-color: hsl(252, 78%, 66%);
+    --accent-glow: hsla(252, 78%, 66%, 0.4);
+    --secondary-accent: hsl(245, 82%, 75%);
+    
+    /* Glassmorphism Refined */
+    --glass-bg: hsla(230, 20%, 10%, 0.7);
+    --glass-border: hsla(0, 0%, 100%, 0.08);
+    --glass-highlight: hsla(0, 0%, 100%, 0.04);
+    --glass-shadow: 0 8px 32px 0 hsla(0, 0%, 0%, 0.5);
+    
+    --text-primary: hsl(0, 0%, 100%);
+    --text-secondary: hsl(210, 10%, 75%);
+    --text-muted: hsl(210, 10%, 55%);
+    
+    --success: hsl(160, 100%, 36%);
+    --danger: hsl(0, 100%, 73%);
+    --gold: hsl(40, 98%, 65%);
+
+    --radius-lg: 24px;
+    --radius-md: 16px;
+    --radius-sm: 12px;
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; font-family: 'Outfit', sans-serif; }
